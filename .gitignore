@@ -23,3 +23,7 @@ secrets.json
 *.log
 tmp/
 temp/
+
+# Dependencies and build output
+node_modules/
+dist/
