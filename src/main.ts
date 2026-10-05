@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { BACKGROUND_COLOR, DESIGN_HEIGHT, DESIGN_WIDTH } from './presentation/display';
-import { PlaceholderScene } from './presentation/PlaceholderScene';
+import { IslandScene } from './presentation/IslandScene';
 
 new Phaser.Game({
   type: Phaser.AUTO,
@@ -12,5 +12,5 @@ new Phaser.Game({
     mode: Phaser.Scale.FIT,
     autoCenter: Phaser.Scale.CENTER_BOTH,
   },
-  scene: [PlaceholderScene],
+  scene: [IslandScene],
 });
