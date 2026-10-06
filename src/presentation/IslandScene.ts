@@ -78,7 +78,11 @@ export class IslandScene extends Phaser.Scene {
   private renderHuman(snapshot: SliceSnapshot): void {
     const pose = computeHumanPose(snapshot);
     this.human.setPosition(pose.x, pose.y - pose.lift);
-    this.human.setScale(pose.scaleX * pose.facing, pose.scaleY);
+    const miniatureScale = 1.08;
+    this.human.setScale(
+      pose.scaleX * pose.facing * miniatureScale,
+      pose.scaleY * miniatureScale,
+    );
     this.human.setRotation(pose.lean);
     this.human.setDepth(pose.y + 2);
     this.drawHumanShape(pose);
@@ -239,39 +243,39 @@ export class IslandScene extends Phaser.Scene {
       y: origin.y + Math.cos(angle) * length,
     });
 
-    const shoulderY = lerp(-37, -25);
-    const hipY = lerp(-21, -15);
-    const leftHip = { x: -3.5, y: hipY };
-    const rightHip = { x: 3.5, y: hipY };
-    const leftStandingFoot = limbEnd(leftHip, pose.leftLegAngle, 20);
-    const rightStandingFoot = limbEnd(rightHip, pose.rightLegAngle, 20);
+    const shoulderY = lerp(-35, -24);
+    const hipY = lerp(-19, -14);
+    const leftHip = { x: -4.5, y: hipY };
+    const rightHip = { x: 4.5, y: hipY };
+    const leftStandingFoot = limbEnd(leftHip, pose.leftLegAngle, 18);
+    const rightStandingFoot = limbEnd(rightHip, pose.rightLegAngle, 18);
     leftStandingFoot.y -= pose.leftFootLift;
     rightStandingFoot.y -= pose.rightFootLift;
 
     const leftKnee = point(
       { x: (leftHip.x + leftStandingFoot.x) / 2, y: (leftHip.y + leftStandingFoot.y) / 2 },
-      { x: -13, y: -9 },
+      { x: -12.5, y: -9 },
     );
     const rightKnee = point(
       { x: (rightHip.x + rightStandingFoot.x) / 2, y: (rightHip.y + rightStandingFoot.y) / 2 },
-      { x: 13, y: -9 },
+      { x: 12.5, y: -9 },
     );
-    const leftFoot = point(leftStandingFoot, { x: -9, y: 0 });
-    const rightFoot = point(rightStandingFoot, { x: 9, y: 0 });
-    const leftShoulder = { x: -6, y: shoulderY };
-    const rightShoulder = { x: 6, y: shoulderY };
-    const leftStandingHand = limbEnd(leftShoulder, pose.leftArmAngle, 17);
-    const rightStandingHand = limbEnd(rightShoulder, pose.rightArmAngle, 17);
+    const leftFoot = point(leftStandingFoot, { x: -8, y: 0 });
+    const rightFoot = point(rightStandingFoot, { x: 8, y: 0 });
+    const leftShoulder = { x: -7.5, y: shoulderY };
+    const rightShoulder = { x: 7.5, y: shoulderY };
+    const leftStandingHand = limbEnd(leftShoulder, pose.leftArmAngle, 15);
+    const rightStandingHand = limbEnd(rightShoulder, pose.rightArmAngle, 15);
     const leftElbow = point(
       { x: (leftShoulder.x + leftStandingHand.x) / 2, y: (leftShoulder.y + leftStandingHand.y) / 2 },
-      { x: -15, y: -18 },
+      { x: -14, y: -17 },
     );
     const rightElbow = point(
       { x: (rightShoulder.x + rightStandingHand.x) / 2, y: (rightShoulder.y + rightStandingHand.y) / 2 },
-      { x: 15, y: -18 },
+      { x: 14, y: -17 },
     );
-    const leftHand = point(leftStandingHand, { x: -12, y: -9 });
-    const rightHand = point(rightStandingHand, { x: 12, y: -9 });
+    const leftHand = point(leftStandingHand, { x: -10.5, y: -9 });
+    const rightHand = point(rightStandingHand, { x: 10.5, y: -9 });
 
     const shape = this.humanShape;
     shape.clear();
@@ -287,20 +291,22 @@ export class IslandScene extends Phaser.Scene {
     };
 
     // Legs, compact torso, then arms: few parts, no anatomical outline.
-    segment(leftHip, leftKnee, 6);
-    segment(leftKnee, leftFoot, 6);
-    segment(rightHip, rightKnee, 6);
-    segment(rightKnee, rightFoot, 6);
+    segment(leftHip, leftKnee, 8.5);
+    segment(leftKnee, leftFoot, 8.5);
+    segment(rightHip, rightKnee, 8.5);
+    segment(rightKnee, rightFoot, 8.5);
     shape.fillStyle(cream, 1);
-    shape.fillRoundedRect(-7, shoulderY - 1, 14, hipY - shoulderY + 3, 6);
-    segment(leftShoulder, leftElbow, 5);
-    segment(leftElbow, leftHand, 5);
-    segment(rightShoulder, rightElbow, 5);
-    segment(rightElbow, rightHand, 5);
+    shape.fillRoundedRect(-9, shoulderY - 1, 18, hipY - shoulderY + 4, 8);
+    segment(leftShoulder, leftElbow, 7);
+    segment(leftElbow, leftHand, 7);
+    segment(rightShoulder, rightElbow, 7);
+    segment(rightElbow, rightHand, 7);
+    shape.fillEllipse(leftFoot.x, leftFoot.y + 1, 10, 6);
+    shape.fillEllipse(rightFoot.x, rightFoot.y + 1, 10, 6);
 
     const headY = lerp(-49, -38);
     const headX = pose.headTilt * 5;
-    const headRadius = 11.5;
+    const headRadius = 13;
     const topColor = this.mixColor(cream, coldBlue, pose.coldAmount);
     const head = this.humanHead;
     head.clear();
