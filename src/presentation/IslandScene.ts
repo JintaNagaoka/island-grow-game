@@ -2,7 +2,12 @@ import Phaser from 'phaser';
 import { SliceGame, type SliceSnapshot } from '../game/sliceGame';
 import { MAX_FRAME_DELTA_MS } from '../game/timing';
 import { ELEMENTS, type Element } from '../game/worldState';
-import { computeEnvironmentMotion, computeFireVisual, computeHumanPose } from './animation';
+import {
+  HUMAN_ASSETS,
+  computeEnvironmentMotion,
+  computeFireVisual,
+  computeHumanPose,
+} from './animation';
 import { DESIGN_HEIGHT, DESIGN_WIDTH } from './display';
 import { LAYOUT, type AnimalKind, type TierId } from './layout';
 
@@ -10,6 +15,7 @@ export const ISLAND_SCENE_KEY = 'Island';
 
 const ICONS: Record<Element, string> = { fire: '🔥', plant: '🌱', rock: '🪨', water: '💧' };
 const FONT_FAMILY = 'sans-serif';
+const HUMAN_SPRITE_SCALE = 0.27;
 type ButtonState = 'available' | 'selected' | 'unavailable';
 
 interface ElementButton {
@@ -29,13 +35,16 @@ export class IslandScene extends Phaser.Scene {
   private animals: Phaser.GameObjects.Container[] = [];
   private shadow!: Phaser.GameObjects.Graphics;
   private fireGraphics!: Phaser.GameObjects.Graphics;
-  private human!: Phaser.GameObjects.Container;
-  private humanShape!: Phaser.GameObjects.Graphics;
-  private humanHead!: Phaser.GameObjects.Graphics;
-  private humanEffects!: Phaser.GameObjects.Graphics;
+  private human!: Phaser.GameObjects.Image;
 
   constructor() {
     super(ISLAND_SCENE_KEY);
+  }
+
+  preload(): void {
+    for (const asset of Object.values(HUMAN_ASSETS)) {
+      this.load.image(asset, `/assets/human/${asset}.png`);
+    }
   }
 
   create(): void {
@@ -78,14 +87,9 @@ export class IslandScene extends Phaser.Scene {
   private renderHuman(snapshot: SliceSnapshot): void {
     const pose = computeHumanPose(snapshot);
     this.human.setPosition(pose.x, pose.y - pose.lift);
-    const miniatureScale = 1.08;
-    this.human.setScale(
-      pose.scaleX * pose.facing * miniatureScale,
-      pose.scaleY * miniatureScale,
-    );
-    this.human.setRotation(pose.lean);
+    this.human.setTexture(pose.asset);
+    this.human.setScale(pose.facing * HUMAN_SPRITE_SCALE, HUMAN_SPRITE_SCALE);
     this.human.setDepth(pose.y + 2);
-    this.drawHumanShape(pose);
 
     const shadowScale = 1 - Math.min(0.32, pose.lift / 28);
     this.shadow.clear();
@@ -93,7 +97,7 @@ export class IslandScene extends Phaser.Scene {
     this.shadow.fillEllipse(
       pose.x,
       pose.y + 2,
-      (27 + pose.sit * 12) * shadowScale,
+      34 * shadowScale,
       8 * shadowScale,
     );
     this.shadow.setDepth(pose.y);
@@ -215,130 +219,10 @@ export class IslandScene extends Phaser.Scene {
 
   private createHuman(): void {
     this.shadow = this.add.graphics();
-    this.humanShape = this.add.graphics();
-    this.humanHead = this.add.graphics();
-    this.humanEffects = this.add.graphics();
-    this.human = this.add.container(LAYOUT.humanStart.x, LAYOUT.humanStart.y, [
-      this.humanShape,
-      this.humanHead,
-      this.humanEffects,
-    ]);
-  }
-
-  private drawHumanShape(pose: ReturnType<typeof computeHumanPose>): void {
-    const cream = 0xffedc7;
-    const coldBlue = 0xa9d9eb;
-    const sit = pose.sit;
-    const lerp = (standing: number, seated: number): number =>
-      standing + (seated - standing) * sit;
-    const point = (
-      standing: { x: number; y: number },
-      seated: { x: number; y: number },
-    ): { x: number; y: number } => ({
-      x: lerp(standing.x, seated.x),
-      y: lerp(standing.y, seated.y),
-    });
-    const limbEnd = (origin: { x: number; y: number }, angle: number, length: number) => ({
-      x: origin.x - Math.sin(angle) * length,
-      y: origin.y + Math.cos(angle) * length,
-    });
-
-    const shoulderY = lerp(-35, -24);
-    const hipY = lerp(-19, -14);
-    const leftHip = { x: -4.5, y: hipY };
-    const rightHip = { x: 4.5, y: hipY };
-    const leftStandingFoot = limbEnd(leftHip, pose.leftLegAngle, 18);
-    const rightStandingFoot = limbEnd(rightHip, pose.rightLegAngle, 18);
-    leftStandingFoot.y -= pose.leftFootLift;
-    rightStandingFoot.y -= pose.rightFootLift;
-
-    const leftKnee = point(
-      { x: (leftHip.x + leftStandingFoot.x) / 2, y: (leftHip.y + leftStandingFoot.y) / 2 },
-      { x: -12.5, y: -9 },
-    );
-    const rightKnee = point(
-      { x: (rightHip.x + rightStandingFoot.x) / 2, y: (rightHip.y + rightStandingFoot.y) / 2 },
-      { x: 12.5, y: -9 },
-    );
-    const leftFoot = point(leftStandingFoot, { x: -8, y: 0 });
-    const rightFoot = point(rightStandingFoot, { x: 8, y: 0 });
-    const leftShoulder = { x: -7.5, y: shoulderY };
-    const rightShoulder = { x: 7.5, y: shoulderY };
-    const leftStandingHand = limbEnd(leftShoulder, pose.leftArmAngle, 15);
-    const rightStandingHand = limbEnd(rightShoulder, pose.rightArmAngle, 15);
-    const leftElbow = point(
-      { x: (leftShoulder.x + leftStandingHand.x) / 2, y: (leftShoulder.y + leftStandingHand.y) / 2 },
-      { x: -14, y: -17 },
-    );
-    const rightElbow = point(
-      { x: (rightShoulder.x + rightStandingHand.x) / 2, y: (rightShoulder.y + rightStandingHand.y) / 2 },
-      { x: 14, y: -17 },
-    );
-    const leftHand = point(leftStandingHand, { x: -10.5, y: -9 });
-    const rightHand = point(rightStandingHand, { x: 10.5, y: -9 });
-
-    const shape = this.humanShape;
-    shape.clear();
-    const segment = (a: { x: number; y: number }, b: { x: number; y: number }, width: number) => {
-      shape.lineStyle(width, cream, 1);
-      shape.beginPath();
-      shape.moveTo(a.x, a.y);
-      shape.lineTo(b.x, b.y);
-      shape.strokePath();
-      shape.fillStyle(cream, 1);
-      shape.fillCircle(a.x, a.y, width / 2);
-      shape.fillCircle(b.x, b.y, width / 2);
-    };
-
-    // Legs, compact torso, then arms: few parts, no anatomical outline.
-    segment(leftHip, leftKnee, 8.5);
-    segment(leftKnee, leftFoot, 8.5);
-    segment(rightHip, rightKnee, 8.5);
-    segment(rightKnee, rightFoot, 8.5);
-    shape.fillStyle(cream, 1);
-    shape.fillRoundedRect(-9, shoulderY - 1, 18, hipY - shoulderY + 4, 8);
-    segment(leftShoulder, leftElbow, 7);
-    segment(leftElbow, leftHand, 7);
-    segment(rightShoulder, rightElbow, 7);
-    segment(rightElbow, rightHand, 7);
-    shape.fillEllipse(leftFoot.x, leftFoot.y + 1, 10, 6);
-    shape.fillEllipse(rightFoot.x, rightFoot.y + 1, 10, 6);
-
-    const headY = lerp(-49, -38);
-    const headX = pose.headTilt * 5;
-    const headRadius = 13;
-    const topColor = this.mixColor(cream, coldBlue, pose.coldAmount);
-    const head = this.humanHead;
-    head.clear();
-    head.fillGradientStyle(topColor, topColor, cream, cream, 1, 1, 1, 1);
-    head.fillCircle(headX, headY, headRadius);
-
-    const effects = this.humanEffects;
-    effects.clear();
-    if (pose.shiverAmount > 0.01) {
-      const wave = Math.sin(pose.effectPhase);
-      effects.lineStyle(2.5, coldBlue, pose.shiverAmount * (0.68 + wave * 0.18));
-      for (const side of [-1, 1]) {
-        const x = side * lerp(19, 24);
-        const y = lerp(-28, -22) + wave * 1.5;
-        effects.beginPath();
-        effects.moveTo(x, y - 8);
-        effects.lineTo(x + side * 4, y - 4);
-        effects.lineTo(x - side * 2, y);
-        effects.lineTo(x + side * 4, y + 4);
-        effects.lineTo(x, y + 8);
-        effects.strokePath();
-      }
-    }
-  }
-
-  private mixColor(from: number, to: number, amount: number): number {
-    const channel = (shift: number): number => {
-      const a = (from >> shift) & 0xff;
-      const b = (to >> shift) & 0xff;
-      return Math.round(a + (b - a) * amount);
-    };
-    return (channel(16) << 16) | (channel(8) << 8) | channel(0);
+    this.human = this.add
+      .image(LAYOUT.humanStart.x, LAYOUT.humanStart.y, HUMAN_ASSETS.cold)
+      .setOrigin(0.5, 0.9375)
+      .setScale(HUMAN_SPRITE_SCALE);
   }
 
   private drawTerrainAndProps(): void {

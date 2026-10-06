@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { SliceGame } from '../game/sliceGame';
 import { WAVE_DURATIONS_MS } from '../game/timing';
-import { computeEnvironmentMotion, computeFireVisual, computeHumanPose } from './animation';
+import {
+  HUMAN_ASSETS,
+  computeEnvironmentMotion,
+  computeFireVisual,
+  computeHumanPose,
+} from './animation';
 import { LAYOUT } from './layout';
 
 function startedGame(): SliceGame {
@@ -11,129 +16,100 @@ function startedGame(): SliceGame {
 }
 
 describe('human pose', () => {
-  it('sits curled up while animated shiver marks leave the body position stable', () => {
+  it('uses the approved cold asset without moving or shaking the body', () => {
     const game = new SliceGame();
-    const xs = new Set<number>();
-    const phases = new Set<number>();
-    for (let t = 0; t < 200; t += 7) {
-      game.advance(7);
-      const pose = computeHumanPose(game.snapshot());
-      xs.add(pose.x);
-      phases.add(pose.effectPhase);
-      expect(pose.sit).toBe(1);
-      expect(pose.coldAmount).toBe(1);
-      expect(pose.shiverAmount).toBe(1);
-    }
-    expect(xs).toEqual(new Set([LAYOUT.humanStart.x]));
-    expect(phases.size).toBeGreaterThan(5);
+    const before = computeHumanPose(game.snapshot());
+    game.advance(2000);
+    const after = computeHumanPose(game.snapshot());
+    expect(before).toEqual({
+      asset: HUMAN_ASSETS.cold,
+      x: LAYOUT.humanStart.x,
+      y: LAYOUT.humanStart.y,
+      lift: 0,
+      facing: 1,
+    });
+    expect(after).toEqual(before);
   });
 
-  it('notices the fire without moving or releasing the knees immediately', () => {
+  it('keeps the cold pose while the fire appears and during the notice beat', () => {
     const game = startedGame();
-    game.advance(WAVE_DURATIONS_MS.fireAppears + 40);
-    const a = computeHumanPose(game.snapshot());
+    game.advance(WAVE_DURATIONS_MS.fireAppears * 0.5);
+    expect(computeHumanPose(game.snapshot()).asset).toBe(HUMAN_ASSETS.cold);
+    game.advance(WAVE_DURATIONS_MS.fireAppears * 0.5);
     game.advance(WAVE_DURATIONS_MS.humanNoticesAndApproaches * 0.1);
-    const b = computeHumanPose(game.snapshot());
-    expect(a.x).toBe(LAYOUT.humanStart.x);
-    expect(b.x).toBe(LAYOUT.humanStart.x);
-    expect(b.lean).toBeGreaterThan(a.lean);
-    expect(b.sit).toBe(1);
+    const noticing = computeHumanPose(game.snapshot());
+    expect(noticing.asset).toBe(HUMAN_ASSETS.cold);
+    expect(noticing.x).toBe(LAYOUT.humanStart.x);
+    expect(noticing.lift).toBe(0);
   });
 
-  it('releases the knees and stands before turning or walking', () => {
+  it('uses approved crouch and side assets to stand before walking', () => {
     const game = startedGame();
     game.advance(
       WAVE_DURATIONS_MS.fireAppears + WAVE_DURATIONS_MS.humanNoticesAndApproaches * 0.3,
     );
     const rising = computeHumanPose(game.snapshot());
-    expect(rising.sit).toBeGreaterThan(0);
-    expect(rising.sit).toBeLessThan(1);
+    expect(rising.asset).toBe(HUMAN_ASSETS.crouch);
     expect(rising.x).toBe(LAYOUT.humanStart.x);
     game.advance(WAVE_DURATIONS_MS.humanNoticesAndApproaches * 0.15);
     const standing = computeHumanPose(game.snapshot());
-    expect(standing.sit).toBe(0);
+    expect(standing.asset).toBe(HUMAN_ASSETS.side);
     expect(standing.x).toBe(LAYOUT.humanStart.x);
   });
 
-  it('turns from the cold resting direction toward the fire before walking', () => {
-    const game = startedGame();
-    expect(computeHumanPose(game.snapshot()).facing).toBe(-1);
-    game.advance(WAVE_DURATIONS_MS.fireAppears + WAVE_DURATIONS_MS.humanNoticesAndApproaches * 0.48);
-    const noticed = computeHumanPose(game.snapshot());
-    expect(noticed.x).toBe(LAYOUT.humanStart.x);
-    expect(noticed.facing).toBe(1);
-  });
-
-  it('walks to the warming spot with alternating legs and opposite arm swings', () => {
+  it('moves the approved walk asset monotonically to the warming spot with a light bob', () => {
     const game = startedGame();
     game.advance(WAVE_DURATIONS_MS.fireAppears);
     const steps = 100;
     const dt = WAVE_DURATIONS_MS.humanNoticesAndApproaches / steps;
-    let sawLeftLegForward = false;
-    let sawRightLegForward = false;
+    const lifts = new Set<number>();
     let previousSmoothX = -Infinity;
     for (let i = 0; i < steps - 1; i += 1) {
       game.advance(dt);
       const pose = computeHumanPose(game.snapshot());
       if ((game.snapshot().activeWave?.progress ?? 0) >= 0.52) {
-        sawLeftLegForward ||= pose.leftLegAngle > 0.3;
-        sawRightLegForward ||= pose.rightLegAngle > 0.3;
-        expect(pose.leftArmAngle).toBeCloseTo(-pose.rightArmAngle);
-        expect(Math.min(pose.leftFootLift, pose.rightFootLift)).toBe(0);
-        expect(Math.max(pose.leftFootLift, pose.rightFootLift)).toBeGreaterThanOrEqual(0);
-      }
-      if (i % 10 === 0) {
+        expect(pose.asset).toBe(HUMAN_ASSETS.walk);
         expect(pose.x).toBeGreaterThanOrEqual(previousSmoothX);
         previousSmoothX = pose.x;
+        lifts.add(pose.lift);
       }
     }
-    expect(sawLeftLegForward).toBe(true);
-    expect(sawRightLegForward).toBe(true);
+    expect(lifts.size).toBeGreaterThan(10);
     game.advance(dt);
     const arrived = computeHumanPose(game.snapshot());
-    expect(Math.abs(arrived.x - LAYOUT.humanWarm.x)).toBeLessThanOrEqual(1);
+    expect(arrived.asset).toBe(HUMAN_ASSETS.hugKnees);
+    expect(arrived.x).toBe(LAYOUT.humanWarm.x);
     expect(arrived.lift).toBeCloseTo(0);
-    expect(arrived.leftFootLift).toBe(0);
-    expect(arrived.rightFootLift).toBe(0);
   });
 
-  it('plants both feet and reaches both arms toward the fire before relaxing', () => {
+  it('warms with the approved knees-hugged pose then changes to normal idle', () => {
     const game = startedGame();
     game.advance(WAVE_DURATIONS_MS.fireAppears + WAVE_DURATIONS_MS.humanNoticesAndApproaches);
     game.advance(WAVE_DURATIONS_MS.humanWarmsUp * 0.45);
     const warming = computeHumanPose(game.snapshot());
-    expect(warming.leftArmAngle).toBeLessThan(-0.9);
-    expect(warming.rightArmAngle).toBeLessThan(-0.9);
-    expect(Math.abs(warming.leftLegAngle)).toBeLessThan(0.1);
-    expect(Math.abs(warming.rightLegAngle)).toBeLessThan(0.1);
-    expect(warming.leftFootLift).toBe(0);
-    expect(warming.rightFootLift).toBe(0);
-    expect(warming.coldAmount).toBeGreaterThan(0);
-    expect(warming.coldAmount).toBeLessThan(1);
+    expect(warming.asset).toBe(HUMAN_ASSETS.hugKnees);
+    expect(warming.x).toBe(LAYOUT.humanWarm.x);
+    expect(game.snapshot().world.isCold).toBe(true);
     game.advance(WAVE_DURATIONS_MS.humanWarmsUp);
     const ready = computeHumanPose(game.snapshot());
     expect(game.snapshot().phase).toBe('completed');
     expect(game.snapshot().world.isCold).toBe(false);
-    expect(ready.coldAmount).toBe(0);
-    expect(ready.shiverAmount).toBe(0);
-    expect(ready.leftArmAngle).toBeGreaterThan(0);
-    expect(ready.rightArmAngle).toBeLessThan(0);
+    expect(ready.asset).toBe(HUMAN_ASSETS.idle);
     expect(ready.x).toBe(LAYOUT.humanWarm.x);
   });
 
-  it('keeps animating (idle) after completion', () => {
+  it('keeps only a subtle whole-image bob after completion', () => {
     const game = startedGame();
     game.advance(10_000);
     const lifts = new Set<number>();
-    const tilts = new Set<number>();
     for (let i = 0; i < 300; i += 1) {
       game.advance(20);
       const pose = computeHumanPose(game.snapshot());
+      expect(pose.asset).toBe(HUMAN_ASSETS.idle);
       lifts.add(pose.lift);
-      tilts.add(pose.headTilt);
     }
     expect(lifts.size).toBeGreaterThan(1);
-    expect(tilts.size).toBeGreaterThan(10);
+    expect(Math.max(...lifts)).toBeLessThanOrEqual(1.2);
   });
 
   it('is a function of the logical clock, so playback speed scales it uniformly', () => {
