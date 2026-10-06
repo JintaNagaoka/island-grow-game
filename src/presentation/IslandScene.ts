@@ -30,11 +30,9 @@ export class IslandScene extends Phaser.Scene {
   private shadow!: Phaser.GameObjects.Graphics;
   private fireGraphics!: Phaser.GameObjects.Graphics;
   private human!: Phaser.GameObjects.Container;
-  private head!: Phaser.GameObjects.Container;
-  private leftArm!: Phaser.GameObjects.Graphics;
-  private rightArm!: Phaser.GameObjects.Graphics;
-  private leftLeg!: Phaser.GameObjects.Graphics;
-  private rightLeg!: Phaser.GameObjects.Graphics;
+  private humanShape!: Phaser.GameObjects.Graphics;
+  private humanHead!: Phaser.GameObjects.Graphics;
+  private humanEffects!: Phaser.GameObjects.Graphics;
 
   constructor() {
     super(ISLAND_SCENE_KEY);
@@ -83,18 +81,17 @@ export class IslandScene extends Phaser.Scene {
     this.human.setScale(pose.scaleX * pose.facing, pose.scaleY);
     this.human.setRotation(pose.lean);
     this.human.setDepth(pose.y + 2);
-    this.head.setRotation(pose.headTilt);
-    this.leftArm.setRotation(pose.leftArmAngle);
-    this.rightArm.setRotation(pose.rightArmAngle);
-    this.leftLeg.setRotation(pose.leftLegAngle);
-    this.rightLeg.setRotation(pose.rightLegAngle);
-    this.leftLeg.setPosition(-4, -22 - pose.leftFootLift);
-    this.rightLeg.setPosition(4, -22 - pose.rightFootLift);
+    this.drawHumanShape(pose);
 
     const shadowScale = 1 - Math.min(0.32, pose.lift / 28);
     this.shadow.clear();
     this.shadow.fillStyle(0x183321, 0.28 * shadowScale);
-    this.shadow.fillEllipse(pose.x, pose.y + 2, 27 * shadowScale, 8 * shadowScale);
+    this.shadow.fillEllipse(
+      pose.x,
+      pose.y + 2,
+      (27 + pose.sit * 12) * shadowScale,
+      8 * shadowScale,
+    );
     this.shadow.setDepth(pose.y);
   }
 
@@ -214,57 +211,128 @@ export class IslandScene extends Phaser.Scene {
 
   private createHuman(): void {
     this.shadow = this.add.graphics();
-    const skin = 0xe7b985;
-    const cloth = 0xb86445;
-    const outline = 0x5b3b2b;
-
-    this.leftLeg = this.createLeg(cloth);
-    this.rightLeg = this.createLeg(cloth);
-    this.leftLeg.setPosition(-4, -22);
-    this.rightLeg.setPosition(4, -22);
-
-    const body = this.add.graphics();
-    body.fillStyle(outline, 1);
-    body.fillRoundedRect(-8, -45, 16, 27, 7);
-    body.fillStyle(cloth, 1);
-    body.fillRoundedRect(-6, -43, 12, 23, 6);
-
-    this.leftArm = this.createLimb(skin, 4.5, 19);
-    this.rightArm = this.createLimb(skin, 4.5, 19);
-    this.leftArm.setPosition(-7, -39);
-    this.rightArm.setPosition(7, -39);
-
-    const headShape = this.add.graphics();
-    headShape.fillStyle(outline, 1);
-    headShape.fillCircle(0, -7, 9.5);
-    headShape.fillStyle(skin, 1);
-    headShape.fillCircle(0, -7, 7.5);
-    this.head = this.add.container(0, -49, [headShape]);
-
+    this.humanShape = this.add.graphics();
+    this.humanHead = this.add.graphics();
+    this.humanEffects = this.add.graphics();
     this.human = this.add.container(LAYOUT.humanStart.x, LAYOUT.humanStart.y, [
-      this.leftLeg,
-      this.rightLeg,
-      body,
-      this.leftArm,
-      this.rightArm,
-      this.head,
+      this.humanShape,
+      this.humanHead,
+      this.humanEffects,
     ]);
   }
 
-  private createLimb(color: number, width: number, length: number): Phaser.GameObjects.Graphics {
-    const limb = this.add.graphics();
-    limb.fillStyle(0x5b3b2b, 1);
-    limb.fillRoundedRect(-width / 2 - 1, -1, width + 2, length + 2, width / 2);
-    limb.fillStyle(color, 1);
-    limb.fillRoundedRect(-width / 2, 0, width, length, width / 2);
-    return limb;
+  private drawHumanShape(pose: ReturnType<typeof computeHumanPose>): void {
+    const cream = 0xffedc7;
+    const coldBlue = 0xa9d9eb;
+    const sit = pose.sit;
+    const lerp = (standing: number, seated: number): number =>
+      standing + (seated - standing) * sit;
+    const point = (
+      standing: { x: number; y: number },
+      seated: { x: number; y: number },
+    ): { x: number; y: number } => ({
+      x: lerp(standing.x, seated.x),
+      y: lerp(standing.y, seated.y),
+    });
+    const limbEnd = (origin: { x: number; y: number }, angle: number, length: number) => ({
+      x: origin.x - Math.sin(angle) * length,
+      y: origin.y + Math.cos(angle) * length,
+    });
+
+    const shoulderY = lerp(-37, -25);
+    const hipY = lerp(-21, -15);
+    const leftHip = { x: -3.5, y: hipY };
+    const rightHip = { x: 3.5, y: hipY };
+    const leftStandingFoot = limbEnd(leftHip, pose.leftLegAngle, 20);
+    const rightStandingFoot = limbEnd(rightHip, pose.rightLegAngle, 20);
+    leftStandingFoot.y -= pose.leftFootLift;
+    rightStandingFoot.y -= pose.rightFootLift;
+
+    const leftKnee = point(
+      { x: (leftHip.x + leftStandingFoot.x) / 2, y: (leftHip.y + leftStandingFoot.y) / 2 },
+      { x: -13, y: -9 },
+    );
+    const rightKnee = point(
+      { x: (rightHip.x + rightStandingFoot.x) / 2, y: (rightHip.y + rightStandingFoot.y) / 2 },
+      { x: 13, y: -9 },
+    );
+    const leftFoot = point(leftStandingFoot, { x: -9, y: 0 });
+    const rightFoot = point(rightStandingFoot, { x: 9, y: 0 });
+    const leftShoulder = { x: -6, y: shoulderY };
+    const rightShoulder = { x: 6, y: shoulderY };
+    const leftStandingHand = limbEnd(leftShoulder, pose.leftArmAngle, 17);
+    const rightStandingHand = limbEnd(rightShoulder, pose.rightArmAngle, 17);
+    const leftElbow = point(
+      { x: (leftShoulder.x + leftStandingHand.x) / 2, y: (leftShoulder.y + leftStandingHand.y) / 2 },
+      { x: -15, y: -18 },
+    );
+    const rightElbow = point(
+      { x: (rightShoulder.x + rightStandingHand.x) / 2, y: (rightShoulder.y + rightStandingHand.y) / 2 },
+      { x: 15, y: -18 },
+    );
+    const leftHand = point(leftStandingHand, { x: -12, y: -9 });
+    const rightHand = point(rightStandingHand, { x: 12, y: -9 });
+
+    const shape = this.humanShape;
+    shape.clear();
+    const segment = (a: { x: number; y: number }, b: { x: number; y: number }, width: number) => {
+      shape.lineStyle(width, cream, 1);
+      shape.beginPath();
+      shape.moveTo(a.x, a.y);
+      shape.lineTo(b.x, b.y);
+      shape.strokePath();
+      shape.fillStyle(cream, 1);
+      shape.fillCircle(a.x, a.y, width / 2);
+      shape.fillCircle(b.x, b.y, width / 2);
+    };
+
+    // Legs, compact torso, then arms: few parts, no anatomical outline.
+    segment(leftHip, leftKnee, 6);
+    segment(leftKnee, leftFoot, 6);
+    segment(rightHip, rightKnee, 6);
+    segment(rightKnee, rightFoot, 6);
+    shape.fillStyle(cream, 1);
+    shape.fillRoundedRect(-7, shoulderY - 1, 14, hipY - shoulderY + 3, 6);
+    segment(leftShoulder, leftElbow, 5);
+    segment(leftElbow, leftHand, 5);
+    segment(rightShoulder, rightElbow, 5);
+    segment(rightElbow, rightHand, 5);
+
+    const headY = lerp(-49, -38);
+    const headX = pose.headTilt * 5;
+    const headRadius = 11.5;
+    const topColor = this.mixColor(cream, coldBlue, pose.coldAmount);
+    const head = this.humanHead;
+    head.clear();
+    head.fillGradientStyle(topColor, topColor, cream, cream, 1, 1, 1, 1);
+    head.fillCircle(headX, headY, headRadius);
+
+    const effects = this.humanEffects;
+    effects.clear();
+    if (pose.shiverAmount > 0.01) {
+      const wave = Math.sin(pose.effectPhase);
+      effects.lineStyle(2.5, coldBlue, pose.shiverAmount * (0.68 + wave * 0.18));
+      for (const side of [-1, 1]) {
+        const x = side * lerp(19, 24);
+        const y = lerp(-28, -22) + wave * 1.5;
+        effects.beginPath();
+        effects.moveTo(x, y - 8);
+        effects.lineTo(x + side * 4, y - 4);
+        effects.lineTo(x - side * 2, y);
+        effects.lineTo(x + side * 4, y + 4);
+        effects.lineTo(x, y + 8);
+        effects.strokePath();
+      }
+    }
   }
 
-  private createLeg(color: number): Phaser.GameObjects.Graphics {
-    const leg = this.createLimb(color, 5, 22);
-    leg.fillStyle(0x49352a, 1);
-    leg.fillRoundedRect(-3, 18, 10, 5, 2);
-    return leg;
+  private mixColor(from: number, to: number, amount: number): number {
+    const channel = (shift: number): number => {
+      const a = (from >> shift) & 0xff;
+      const b = (to >> shift) & 0xff;
+      return Math.round(a + (b - a) * amount);
+    };
+    return (channel(16) << 16) | (channel(8) << 8) | channel(0);
   }
 
   private drawTerrainAndProps(): void {

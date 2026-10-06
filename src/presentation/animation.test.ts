@@ -11,32 +11,54 @@ function startedGame(): SliceGame {
 }
 
 describe('human pose', () => {
-  it('shivers on the initial screen', () => {
+  it('sits curled up while animated shiver marks leave the body position stable', () => {
     const game = new SliceGame();
     const xs = new Set<number>();
+    const phases = new Set<number>();
     for (let t = 0; t < 200; t += 7) {
       game.advance(7);
-      xs.add(computeHumanPose(game.snapshot()).x);
+      const pose = computeHumanPose(game.snapshot());
+      xs.add(pose.x);
+      phases.add(pose.effectPhase);
+      expect(pose.sit).toBe(1);
+      expect(pose.coldAmount).toBe(1);
+      expect(pose.shiverAmount).toBe(1);
     }
-    expect(xs.size).toBeGreaterThan(5);
-    for (const x of xs) expect(Math.abs(x - LAYOUT.humanStart.x)).toBeLessThanOrEqual(3);
+    expect(xs).toEqual(new Set([LAYOUT.humanStart.x]));
+    expect(phases.size).toBeGreaterThan(5);
   });
 
-  it('stops shivering while noticing the fire', () => {
+  it('notices the fire without moving or releasing the knees immediately', () => {
     const game = startedGame();
     game.advance(WAVE_DURATIONS_MS.fireAppears + 40);
     const a = computeHumanPose(game.snapshot());
-    game.advance(13);
+    game.advance(WAVE_DURATIONS_MS.humanNoticesAndApproaches * 0.1);
     const b = computeHumanPose(game.snapshot());
     expect(a.x).toBe(LAYOUT.humanStart.x);
     expect(b.x).toBe(LAYOUT.humanStart.x);
     expect(b.lean).toBeGreaterThan(a.lean);
+    expect(b.sit).toBe(1);
+  });
+
+  it('releases the knees and stands before turning or walking', () => {
+    const game = startedGame();
+    game.advance(
+      WAVE_DURATIONS_MS.fireAppears + WAVE_DURATIONS_MS.humanNoticesAndApproaches * 0.3,
+    );
+    const rising = computeHumanPose(game.snapshot());
+    expect(rising.sit).toBeGreaterThan(0);
+    expect(rising.sit).toBeLessThan(1);
+    expect(rising.x).toBe(LAYOUT.humanStart.x);
+    game.advance(WAVE_DURATIONS_MS.humanNoticesAndApproaches * 0.15);
+    const standing = computeHumanPose(game.snapshot());
+    expect(standing.sit).toBe(0);
+    expect(standing.x).toBe(LAYOUT.humanStart.x);
   });
 
   it('turns from the cold resting direction toward the fire before walking', () => {
     const game = startedGame();
     expect(computeHumanPose(game.snapshot()).facing).toBe(-1);
-    game.advance(WAVE_DURATIONS_MS.fireAppears + WAVE_DURATIONS_MS.humanNoticesAndApproaches * 0.2);
+    game.advance(WAVE_DURATIONS_MS.fireAppears + WAVE_DURATIONS_MS.humanNoticesAndApproaches * 0.48);
     const noticed = computeHumanPose(game.snapshot());
     expect(noticed.x).toBe(LAYOUT.humanStart.x);
     expect(noticed.facing).toBe(1);
@@ -53,7 +75,7 @@ describe('human pose', () => {
     for (let i = 0; i < steps - 1; i += 1) {
       game.advance(dt);
       const pose = computeHumanPose(game.snapshot());
-      if ((game.snapshot().activeWave?.progress ?? 0) >= 0.24) {
+      if ((game.snapshot().activeWave?.progress ?? 0) >= 0.52) {
         sawLeftLegForward ||= pose.leftLegAngle > 0.3;
         sawRightLegForward ||= pose.rightLegAngle > 0.3;
         expect(pose.leftArmAngle).toBeCloseTo(-pose.rightArmAngle);
@@ -86,9 +108,14 @@ describe('human pose', () => {
     expect(Math.abs(warming.rightLegAngle)).toBeLessThan(0.1);
     expect(warming.leftFootLift).toBe(0);
     expect(warming.rightFootLift).toBe(0);
+    expect(warming.coldAmount).toBeGreaterThan(0);
+    expect(warming.coldAmount).toBeLessThan(1);
     game.advance(WAVE_DURATIONS_MS.humanWarmsUp);
     const ready = computeHumanPose(game.snapshot());
     expect(game.snapshot().phase).toBe('completed');
+    expect(game.snapshot().world.isCold).toBe(false);
+    expect(ready.coldAmount).toBe(0);
+    expect(ready.shiverAmount).toBe(0);
     expect(ready.leftArmAngle).toBeGreaterThan(0);
     expect(ready.rightArmAngle).toBeLessThan(0);
     expect(ready.x).toBe(LAYOUT.humanWarm.x);

@@ -18,6 +18,12 @@ export interface HumanPose {
   readonly rightLegAngle: number;
   readonly leftFootLift: number;
   readonly rightFootLift: number;
+  // 1 = curled up on the ground, 0 = standing.
+  readonly sit: number;
+  // Visual cold cues fade during warm-up; WorldState remains authoritative.
+  readonly coldAmount: number;
+  readonly shiverAmount: number;
+  readonly effectPhase: number;
 }
 
 export interface FireVisual {
@@ -32,10 +38,10 @@ export interface EnvironmentMotion {
   readonly animalOffsets: readonly { x: number; y: number; turn: number }[];
 }
 
-const NOTICE_FRACTION = 0.24;
-const WALK_CYCLES = 4.5;
-const SHIVER_HZ = 14;
-const SHIVER_AMPLITUDE = 2;
+const NOTICE_END = 0.18;
+const STAND_END = 0.42;
+const TURN_END = 0.52;
+const WALK_CYCLES = 4;
 const TAU = Math.PI * 2;
 
 const clamp01 = (value: number): number => Math.min(1, Math.max(0, value));
@@ -45,9 +51,6 @@ const smoothstep = (t: number): number => {
   const c = clamp01(t);
   return c * c * (3 - 2 * c);
 };
-const shiver = (clockMs: number, strength: number): number =>
-  Math.sin((clockMs / 1000) * TAU * SHIVER_HZ) * SHIVER_AMPLITUDE * strength;
-
 function easeOutBack(t: number): number {
   const c1 = 1.70158;
   const c3 = c1 + 1;
@@ -111,59 +114,92 @@ export function computeHumanPose(snapshot: SliceSnapshot): HumanPose {
     rightLegAngle: 0,
     leftFootLift: 0,
     rightFootLift: 0,
+    sit: 0,
+    coldAmount: snapshot.world.isCold ? 1 : 0,
+    shiverAmount: snapshot.world.isCold ? 1 : 0,
+    effectPhase: seconds * TAU * 3.2,
   };
 
-  // Cold: small shiver, bent knees and arms held close to the body.
+  // Cold: the body stays legible and still while animated marks carry the
+  // rapid tremble. The seated silhouette hugs both knees.
   if (snapshot.phase === 'awaiting-input' || wave?.index === 0) {
-    const tremble = shiver(clock, 1);
     return {
       ...base,
-      x: base.x + tremble,
-      scaleY: 0.91,
-      lean: -0.04 + tremble * 0.008,
-      headTilt: Math.sin(seconds * TAU * SHIVER_HZ) * 0.04,
+      sit: 1,
+      scaleY: 0.96 + Math.sin(seconds * TAU * 0.7) * 0.008,
+      lean: -0.08,
+      headTilt: -0.08,
       facing: -1,
-      leftArmAngle: -0.72 + tremble * 0.03,
-      rightArmAngle: 0.72 - tremble * 0.03,
-      leftLegAngle: 0.12,
-      rightLegAngle: -0.12,
+      leftArmAngle: -0.45,
+      rightArmAngle: 0.45,
+      leftLegAngle: 0.8,
+      rightLegAngle: -0.8,
     };
   }
 
-  // Notice: shiver stops, then the figure deliberately turns toward the fire.
-  if (wave?.index === 1 && wave.progress < NOTICE_FRACTION) {
-    const u = smoothstep(wave.progress / NOTICE_FRACTION);
-    return {
-      ...base,
-      scaleY: lerp(0.91, 1, u),
-      lean: lerp(-0.04, 0.13, u),
-      headTilt: lerp(0, 0.28, u),
-      facing: u < 0.45 ? -1 : 1,
-      leftArmAngle: lerp(-0.72, 0.05, u),
-      rightArmAngle: lerp(0.72, -0.28, u),
-    };
-  }
-
-  // Walk: alternating planted legs and opposite arm swings accompany travel.
   if (wave?.index === 1) {
-    const q = clamp01((wave.progress - NOTICE_FRACTION) / (1 - NOTICE_FRACTION));
+    const p = wave.progress;
+
+    // First react while still holding the knees. A small upper-body lift reads
+    // as attention without beginning locomotion.
+    if (p < NOTICE_END) {
+      const notice = smoothstep(p / NOTICE_END);
+      return {
+        ...base,
+        sit: 1,
+        facing: -1,
+        lean: lerp(-0.08, 0.02, notice),
+        headTilt: lerp(-0.08, 0.18, notice),
+      };
+    }
+
+    // Release the knees and rise fully before changing direction.
+    if (p < STAND_END) {
+      const stand = smoothstep((p - NOTICE_END) / (STAND_END - NOTICE_END));
+      return {
+        ...base,
+        sit: 1 - stand,
+        facing: -1,
+        lean: lerp(0.02, 0, stand),
+        headTilt: lerp(0.18, 0, stand),
+        leftArmAngle: lerp(-0.45, 0.18, stand),
+        rightArmAngle: lerp(0.45, -0.18, stand),
+        leftLegAngle: lerp(0.8, 0, stand),
+        rightLegAngle: lerp(-0.8, 0, stand),
+      };
+    }
+
+    // A separate pause makes the turn toward the new fire intentional.
+    if (p < TURN_END) {
+      const turn = smoothstep((p - STAND_END) / (TURN_END - STAND_END));
+      return {
+        ...base,
+        facing: turn < 0.5 ? -1 : 1,
+        scaleX: 1 - Math.sin(turn * Math.PI) * 0.18,
+        headTilt: 0.12 * Math.sin(turn * Math.PI),
+      };
+    }
+
+    // Walk: a short-legged, slightly bouncy alternating gait. One foot stays
+    // planted while the opposite foot swings.
+    const q = clamp01((p - TURN_END) / (1 - TURN_END));
     const cycle = Math.sin(q * WALK_CYCLES * TAU);
     const leftSwing = Math.max(0, cycle);
     const rightSwing = Math.max(0, -cycle);
     return {
       ...base,
       x: lerp(LAYOUT.humanStart.x, LAYOUT.humanWarm.x, smoothstep(q)),
-      lift: Math.abs(cycle) * 1.2,
-      lean: 0.1 + cycle * 0.025,
+      lift: Math.abs(cycle) * 1.8,
+      lean: 0.06 + cycle * 0.02,
       headTilt: 0.1 * (1 - smoothstep((q - 0.75) / 0.25)),
-      leftArmAngle: cycle * 0.58,
-      rightArmAngle: -cycle * 0.58,
+      leftArmAngle: cycle * 0.38,
+      rightArmAngle: -cycle * 0.38,
       // The rear leg stays nearly vertical as the opposite foot swings. At
       // least one foot therefore remains visibly planted throughout a step.
-      leftLegAngle: leftSwing * 0.62 - rightSwing * 0.12,
-      rightLegAngle: rightSwing * 0.62 - leftSwing * 0.12,
-      leftFootLift: leftSwing * 4,
-      rightFootLift: rightSwing * 4,
+      leftLegAngle: leftSwing * 0.55 - rightSwing * 0.1,
+      rightLegAngle: rightSwing * 0.55 - leftSwing * 0.1,
+      leftFootLift: leftSwing * 3.5,
+      rightFootLift: rightSwing * 3.5,
     };
   }
 
@@ -174,10 +210,9 @@ export function computeHumanPose(snapshot: SliceSnapshot): HumanPose {
     const p = wave.progress;
     const reach = easeOutCubic(p / 0.2) * (1 - smoothstep((p - 0.76) / 0.24));
     const relief = Math.sin(Math.PI * clamp01((p - 0.72) / 0.28));
-    const remainingShiver = 1 - smoothstep((p - 0.08) / 0.5);
+    const remainingCold = 1 - smoothstep((p - 0.18) / 0.7);
     return {
       ...warmBase,
-      x: warmBase.x + shiver(clock, remainingShiver * 0.45),
       lift: relief * 3,
       scaleY: 1 + relief * 0.035,
       lean: 0.12 * reach,
@@ -188,6 +223,8 @@ export function computeHumanPose(snapshot: SliceSnapshot): HumanPose {
       rightArmAngle: lerp(-0.18, -1.3, reach),
       leftLegAngle: -0.08,
       rightLegAngle: 0.08,
+      coldAmount: remainingCold,
+      shiverAmount: remainingCold,
     };
   }
 
