@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { SliceGame } from '../game/sliceGame';
 import { WAVE_DURATIONS_MS } from '../game/timing';
-import { computeFireVisual, computeHumanPose } from './animation';
+import { computeEnvironmentMotion, computeFireVisual, computeHumanPose } from './animation';
 import { LAYOUT } from './layout';
 
 function startedGame(): SliceGame {
@@ -33,42 +33,64 @@ describe('human pose', () => {
     expect(b.lean).toBeGreaterThan(a.lean);
   });
 
-  it('moves from the start to the warming spot by hopping, never backwards on average', () => {
+  it('turns from the cold resting direction toward the fire before walking', () => {
+    const game = startedGame();
+    expect(computeHumanPose(game.snapshot()).facing).toBe(-1);
+    game.advance(WAVE_DURATIONS_MS.fireAppears + WAVE_DURATIONS_MS.humanNoticesAndApproaches * 0.2);
+    const noticed = computeHumanPose(game.snapshot());
+    expect(noticed.x).toBe(LAYOUT.humanStart.x);
+    expect(noticed.facing).toBe(1);
+  });
+
+  it('walks to the warming spot with alternating legs and opposite arm swings', () => {
     const game = startedGame();
     game.advance(WAVE_DURATIONS_MS.fireAppears);
     const steps = 100;
     const dt = WAVE_DURATIONS_MS.humanNoticesAndApproaches / steps;
-    let maxLift = 0;
-    let minLift = Infinity;
+    let sawLeftLegForward = false;
+    let sawRightLegForward = false;
     let previousSmoothX = -Infinity;
     for (let i = 0; i < steps - 1; i += 1) {
       game.advance(dt);
       const pose = computeHumanPose(game.snapshot());
-      maxLift = Math.max(maxLift, pose.lift);
-      minLift = Math.min(minLift, pose.lift);
-      // Shiver is <= 1px while walking, so travel dominates.
+      if ((game.snapshot().activeWave?.progress ?? 0) >= 0.24) {
+        sawLeftLegForward ||= pose.leftLegAngle > 0.3;
+        sawRightLegForward ||= pose.rightLegAngle > 0.3;
+        expect(pose.leftArmAngle).toBeCloseTo(-pose.rightArmAngle);
+        expect(Math.min(pose.leftFootLift, pose.rightFootLift)).toBe(0);
+        expect(Math.max(pose.leftFootLift, pose.rightFootLift)).toBeGreaterThanOrEqual(0);
+      }
       if (i % 10 === 0) {
-        expect(pose.x).toBeGreaterThan(previousSmoothX - 1);
+        expect(pose.x).toBeGreaterThanOrEqual(previousSmoothX);
         previousSmoothX = pose.x;
       }
     }
-    expect(maxLift).toBeGreaterThan(10);
-    expect(minLift).toBeLessThan(2);
+    expect(sawLeftLegForward).toBe(true);
+    expect(sawRightLegForward).toBe(true);
     game.advance(dt);
     const arrived = computeHumanPose(game.snapshot());
     expect(Math.abs(arrived.x - LAYOUT.humanWarm.x)).toBeLessThanOrEqual(1);
     expect(arrived.lift).toBeCloseTo(0);
+    expect(arrived.leftFootLift).toBe(0);
+    expect(arrived.rightFootLift).toBe(0);
   });
 
-  it('settles at the fire, raises arms to warm up, then lowers them when ready', () => {
+  it('plants both feet and reaches both arms toward the fire before relaxing', () => {
     const game = startedGame();
     game.advance(WAVE_DURATIONS_MS.fireAppears + WAVE_DURATIONS_MS.humanNoticesAndApproaches);
     game.advance(WAVE_DURATIONS_MS.humanWarmsUp * 0.45);
-    expect(computeHumanPose(game.snapshot()).armRaise).toBeCloseTo(1);
+    const warming = computeHumanPose(game.snapshot());
+    expect(warming.leftArmAngle).toBeLessThan(-0.9);
+    expect(warming.rightArmAngle).toBeLessThan(-0.9);
+    expect(Math.abs(warming.leftLegAngle)).toBeLessThan(0.1);
+    expect(Math.abs(warming.rightLegAngle)).toBeLessThan(0.1);
+    expect(warming.leftFootLift).toBe(0);
+    expect(warming.rightFootLift).toBe(0);
     game.advance(WAVE_DURATIONS_MS.humanWarmsUp);
     const ready = computeHumanPose(game.snapshot());
     expect(game.snapshot().phase).toBe('completed');
-    expect(ready.armRaise).toBe(0);
+    expect(ready.leftArmAngle).toBeGreaterThan(0);
+    expect(ready.rightArmAngle).toBeLessThan(0);
     expect(ready.x).toBe(LAYOUT.humanWarm.x);
   });
 
@@ -97,6 +119,29 @@ describe('human pose', () => {
   });
 });
 
+describe('living miniature motion', () => {
+  it('keeps trees and animals moving from the same logical clock', () => {
+    const game = new SliceGame();
+    const before = computeEnvironmentMotion(game.snapshot());
+    game.advance(1000);
+    const after = computeEnvironmentMotion(game.snapshot());
+    expect(after.treeSways).not.toEqual(before.treeSways);
+    expect(after.animalOffsets).not.toEqual(before.animalOffsets);
+    expect(after.treeSways).toHaveLength(LAYOUT.trees.length + LAYOUT.foreground.length);
+    expect(after.animalOffsets).toHaveLength(LAYOUT.animals.length);
+  });
+
+  it('scales ambient motion uniformly with playback speed', () => {
+    const slow = new SliceGame({ playbackSpeed: 0.5 });
+    const fast = new SliceGame({ playbackSpeed: 2 });
+    slow.advance(4000);
+    fast.advance(1000);
+    expect(computeEnvironmentMotion(slow.snapshot())).toEqual(
+      computeEnvironmentMotion(fast.snapshot()),
+    );
+  });
+});
+
 describe('fire visual', () => {
   it('is hidden before fire is chosen', () => {
     expect(computeFireVisual(new SliceGame().snapshot()).visible).toBe(false);
@@ -118,5 +163,16 @@ describe('fire visual', () => {
 
     game.advance(10_000);
     expect(computeFireVisual(game.snapshot()).visible).toBe(true);
+  });
+
+  it('keeps flickering from the logical clock after it is established', () => {
+    const game = startedGame();
+    game.advance(WAVE_DURATIONS_MS.fireAppears + 10);
+    const scales = new Set<number>();
+    for (let i = 0; i < 20; i += 1) {
+      game.advance(17);
+      scales.add(computeFireVisual(game.snapshot()).scale);
+    }
+    expect(scales.size).toBeGreaterThan(10);
   });
 });

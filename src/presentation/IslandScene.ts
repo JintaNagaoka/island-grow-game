@@ -2,15 +2,14 @@ import Phaser from 'phaser';
 import { SliceGame, type SliceSnapshot } from '../game/sliceGame';
 import { MAX_FRAME_DELTA_MS } from '../game/timing';
 import { ELEMENTS, type Element } from '../game/worldState';
-import { computeFireVisual, computeHumanPose } from './animation';
+import { computeEnvironmentMotion, computeFireVisual, computeHumanPose } from './animation';
 import { DESIGN_HEIGHT, DESIGN_WIDTH } from './display';
-import { LAYOUT } from './layout';
+import { LAYOUT, type AnimalKind, type TierId } from './layout';
 
 export const ISLAND_SCENE_KEY = 'Island';
 
 const ICONS: Record<Element, string> = { fire: '🔥', plant: '🌱', rock: '🪨', water: '💧' };
 const FONT_FAMILY = 'sans-serif';
-
 type ButtonState = 'available' | 'selected' | 'unavailable';
 
 interface ElementButton {
@@ -21,19 +20,21 @@ interface ElementButton {
   state: ButtonState | null;
 }
 
-// Vertical Slice 01 screen. It owns no gameplay state: input is forwarded to
-// SliceGame, and every frame is drawn from SliceGame.snapshot() through the
-// pure functions in animation.ts. No tweens or timers are used, so playback
-// speed is controlled solely by the logical clock in SliceGame.
+// Fixed-camera miniature presentation. Gameplay lives entirely in SliceGame;
+// this scene turns snapshots into toy-like shapes and clock-driven movement.
 export class IslandScene extends Phaser.Scene {
   private slice = new SliceGame();
   private buttons: ElementButton[] = [];
+  private trees: Phaser.GameObjects.Container[] = [];
+  private animals: Phaser.GameObjects.Container[] = [];
   private shadow!: Phaser.GameObjects.Graphics;
   private fireGraphics!: Phaser.GameObjects.Graphics;
   private human!: Phaser.GameObjects.Container;
   private head!: Phaser.GameObjects.Container;
   private leftArm!: Phaser.GameObjects.Graphics;
   private rightArm!: Phaser.GameObjects.Graphics;
+  private leftLeg!: Phaser.GameObjects.Graphics;
+  private rightLeg!: Phaser.GameObjects.Graphics;
 
   constructor() {
     super(ISLAND_SCENE_KEY);
@@ -42,9 +43,12 @@ export class IslandScene extends Phaser.Scene {
   create(): void {
     this.slice = new SliceGame();
     this.buttons = [];
-    this.drawScenery();
+    this.trees = [];
+    this.animals = [];
+    this.drawTerrainAndProps();
+    this.createLivingScenery();
     this.createHuman();
-    this.fireGraphics = this.add.graphics();
+    this.fireGraphics = this.add.graphics().setDepth(LAYOUT.fire.y + 1);
     this.createButtons();
     this.render(this.slice.snapshot());
   }
@@ -55,27 +59,43 @@ export class IslandScene extends Phaser.Scene {
     this.render(this.slice.snapshot());
   }
 
-  // ---- rendering from snapshot ------------------------------------------
-
   private render(snapshot: SliceSnapshot): void {
+    this.renderEnvironment(snapshot);
     this.renderHuman(snapshot);
     this.renderFire(snapshot);
     this.renderButtons(snapshot);
   }
 
+  private renderEnvironment(snapshot: SliceSnapshot): void {
+    const motion = computeEnvironmentMotion(snapshot);
+    this.trees.forEach((tree, index) => tree.setRotation(motion.treeSways[index] ?? 0));
+    this.animals.forEach((animal, index) => {
+      const home = LAYOUT.animals[index];
+      const offset = motion.animalOffsets[index];
+      animal.setPosition(home.x + offset.x, home.y + offset.y);
+      animal.setRotation(offset.turn * 0.025);
+    });
+  }
+
   private renderHuman(snapshot: SliceSnapshot): void {
     const pose = computeHumanPose(snapshot);
     this.human.setPosition(pose.x, pose.y - pose.lift);
-    this.human.setScale(pose.scaleX, pose.scaleY);
+    this.human.setScale(pose.scaleX * pose.facing, pose.scaleY);
     this.human.setRotation(pose.lean);
+    this.human.setDepth(pose.y + 2);
     this.head.setRotation(pose.headTilt);
-    this.leftArm.setRotation(-pose.armRaise * 1.9);
-    this.rightArm.setRotation(-pose.armRaise * 1.9);
+    this.leftArm.setRotation(pose.leftArmAngle);
+    this.rightArm.setRotation(pose.rightArmAngle);
+    this.leftLeg.setRotation(pose.leftLegAngle);
+    this.rightLeg.setRotation(pose.rightLegAngle);
+    this.leftLeg.setPosition(-4, -22 - pose.leftFootLift);
+    this.rightLeg.setPosition(4, -22 - pose.rightFootLift);
 
-    const shadowScale = 1 - Math.min(0.4, pose.lift / 40);
+    const shadowScale = 1 - Math.min(0.32, pose.lift / 28);
     this.shadow.clear();
-    this.shadow.fillStyle(0x000000, 0.22 * shadowScale);
-    this.shadow.fillEllipse(pose.x, pose.y + 2, 48 * shadowScale, 14 * shadowScale);
+    this.shadow.fillStyle(0x183321, 0.28 * shadowScale);
+    this.shadow.fillEllipse(pose.x, pose.y + 2, 27 * shadowScale, 8 * shadowScale);
+    this.shadow.setDepth(pose.y);
   }
 
   private renderFire(snapshot: SliceSnapshot): void {
@@ -83,52 +103,38 @@ export class IslandScene extends Phaser.Scene {
     g.clear();
     const fire = computeFireVisual(snapshot);
     if (!fire.visible) return;
-
     const { x, y } = LAYOUT.fire;
     const s = fire.scale;
 
-    // Warm light on the ground.
-    g.fillStyle(0xffa640, 0.16);
-    g.fillEllipse(x, y + 4, 190 * s, 70 * s);
-    g.fillStyle(0xffc060, 0.14);
-    g.fillEllipse(x, y + 4, 120 * s, 44 * s);
-
-    // Stone ring and logs.
-    g.fillStyle(0x8a8f96, 1);
+    g.fillStyle(0xffbd55, 0.13);
+    g.fillEllipse(x, y + 4, 116 * s, 35 * s);
+    g.fillStyle(0x777b80, 1);
     for (let i = 0; i < 7; i += 1) {
-      const a = (i / 7) * Math.PI * 2;
-      g.fillCircle(x + Math.cos(a) * 26, y + 2 + Math.sin(a) * 9, 6);
+      const angle = (i / 7) * Math.PI * 2;
+      g.fillCircle(x + Math.cos(angle) * 19, y + Math.sin(angle) * 6, 4.5);
     }
-    g.fillStyle(0x6b4423, 1);
-    g.fillEllipse(x - 6, y + 2, 34, 9);
-    g.fillEllipse(x + 6, y + 4, 34, 9);
+    g.fillStyle(0x704423, 1);
+    g.fillRoundedRect(x - 19, y - 2, 38, 6, 3);
+    g.fillStyle(0xe85620, 1);
+    g.fillTriangle(x - 13 * s, y, x + 13 * s, y, x, y - 43 * s);
+    g.fillEllipse(x, y - 6 * s, 27 * s, 18 * s);
+    g.fillStyle(0xffb43c, 1);
+    g.fillTriangle(x - 7 * s, y - 1, x + 7 * s, y - 1, x + 2 * s, y - 28 * s);
 
-    // Flame: outer, mid, and core.
-    g.fillStyle(0xe8541c, 1);
-    g.fillTriangle(x - 20 * s, y, x + 20 * s, y, x, y - 64 * s);
-    g.fillEllipse(x, y - 8 * s, 40 * s, 26 * s);
-    g.fillStyle(0xffa63a, 1);
-    g.fillTriangle(x - 13 * s, y - 2 * s, x + 13 * s, y - 2 * s, x + 1 * s, y - 46 * s);
-    g.fillEllipse(x, y - 8 * s, 26 * s, 18 * s);
-    g.fillStyle(0xffe07a, 1);
-    g.fillTriangle(x - 7 * s, y - 3 * s, x + 7 * s, y - 3 * s, x, y - 26 * s);
-
-    // One-shot spark burst on appearance.
     if (fire.burst !== null && fire.burst < 0.8) {
       const t = fire.burst / 0.8;
-      const radius = (1 - (1 - t) ** 3) * 70;
+      const radius = (1 - (1 - t) ** 3) * 48;
       g.fillStyle(0xffd35c, 1 - t);
       for (let i = 0; i < 8; i += 1) {
-        const a = (i / 8) * Math.PI * 2;
-        g.fillCircle(x + Math.cos(a) * radius, y - 20 + Math.sin(a) * radius * 0.7, 4 * (1 - t) + 1);
+        const angle = (i / 8) * Math.PI * 2;
+        g.fillCircle(x + Math.cos(angle) * radius, y - 16 + Math.sin(angle) * radius * 0.55, 3);
       }
     }
 
-    // Idle embers rising from the fire.
     for (let i = 0; i < 3; i += 1) {
-      const t = (fire.seconds * 0.5 + i / 3) % 1;
-      g.fillStyle(0xffc860, (1 - t) * 0.9);
-      g.fillCircle(x + Math.sin(fire.seconds * 3 + i * 2.1) * 10 * s, y - 40 * s - t * 50, 2.5);
+      const t = (fire.seconds * 0.55 + i / 3) % 1;
+      g.fillStyle(0xffc860, (1 - t) * 0.85);
+      g.fillCircle(x + Math.sin(fire.seconds * 3 + i * 2.1) * 7 * s, y - 28 * s - t * 38, 2);
     }
   }
 
@@ -140,8 +146,7 @@ export class IslandScene extends Phaser.Scene {
         this.drawButton(button, state);
       }
     }
-    // Gentle cue on the one available button, driven by the logical clock.
-    const fire = this.buttons.find((b) => b.element === 'fire');
+    const fire = this.buttons.find((button) => button.element === 'fire');
     if (fire) {
       const seconds = snapshot.clockMs / 1000;
       fire.icon.setScale(fire.state === 'available' ? 1 + 0.06 * Math.sin(seconds * Math.PI * 2 * 1.2) : 1);
@@ -155,180 +160,227 @@ export class IslandScene extends Phaser.Scene {
 
   private drawButton(button: ElementButton, state: ButtonState): void {
     const size = LAYOUT.ui.buttonSize;
-    const colors: Record<ButtonState, { fill: number; border: number; alpha: number }> = {
-      available: { fill: 0xc2561f, border: 0xffd18a, alpha: 1 },
-      selected: { fill: 0x3a2a22, border: 0x7a5a44, alpha: 1 },
-      unavailable: { fill: 0x2a3340, border: 0x46505e, alpha: 1 },
+    const colors: Record<ButtonState, { fill: number; border: number }> = {
+      available: { fill: 0xb95624, border: 0xffd18a },
+      selected: { fill: 0x3a2a22, border: 0x7a5a44 },
+      unavailable: { fill: 0x26323d, border: 0x465563 },
     };
     const style = colors[state];
     const index = ELEMENTS.indexOf(button.element);
     const cx = LAYOUT.ui.buttonCenterXs[index];
     const cy = LAYOUT.ui.buttonCenterY;
-
     button.background.clear();
-    button.background.fillStyle(style.fill, style.alpha);
-    button.background.fillRoundedRect(cx - size / 2, cy - size / 2, size, size, 22);
+    button.background.fillStyle(style.fill, 1);
+    button.background.fillRoundedRect(cx - size / 2, cy - size / 2, size, size, 20);
     button.background.lineStyle(4, style.border, 1);
-    button.background.strokeRoundedRect(cx - size / 2, cy - size / 2, size, size, 22);
-
-    button.icon.setAlpha(state === 'available' ? 1 : 0.4);
-    button.caption.setText(
-      state === 'selected' ? '✓ 選択済み' : state === 'unavailable' ? '準備中' : '',
-    );
+    button.background.strokeRoundedRect(cx - size / 2, cy - size / 2, size, size, 20);
+    button.icon.setAlpha(state === 'available' ? 1 : 0.42);
+    button.caption.setText(state === 'selected' ? '✓ 選択済み' : state === 'unavailable' ? '準備中' : '');
   }
-
-  // ---- construction ------------------------------------------------------
 
   private createButtons(): void {
     this.add
-      .rectangle(0, LAYOUT.ui.panelTop, DESIGN_WIDTH, DESIGN_HEIGHT - LAYOUT.ui.panelTop, 0x141c26)
-      .setOrigin(0, 0);
-
+      .rectangle(0, LAYOUT.ui.panelTop, DESIGN_WIDTH, DESIGN_HEIGHT - LAYOUT.ui.panelTop, 0x111b24)
+      .setOrigin(0, 0)
+      .setDepth(2000);
     ELEMENTS.forEach((element, index) => {
       const cx = LAYOUT.ui.buttonCenterXs[index];
       const cy = LAYOUT.ui.buttonCenterY;
       const size = LAYOUT.ui.buttonSize;
-
-      const background = this.add.graphics();
+      const background = this.add.graphics().setDepth(2001);
       const icon = this.add
-        .text(cx, cy - 10, ICONS[element], { fontFamily: FONT_FAMILY, fontSize: `${Math.round(size * 0.45)}px` })
-        .setOrigin(0.5);
+        .text(cx, cy - 10, ICONS[element], {
+          fontFamily: FONT_FAMILY,
+          fontSize: `${Math.round(size * 0.45)}px`,
+        })
+        .setOrigin(0.5)
+        .setDepth(2002);
       const caption = this.add
-        .text(cx, cy + size * 0.33, '', { fontFamily: FONT_FAMILY, fontSize: '20px', color: '#e8d9c4' })
-        .setOrigin(0.5);
-
-      const zone = this.add.zone(cx, cy, size, size).setInteractive();
-      zone.on('pointerdown', () => {
-        // The result only matters to game logic; the screen redraws from state.
-        this.slice.selectElement(element);
-      });
-
+        .text(cx, cy + size * 0.33, '', {
+          fontFamily: FONT_FAMILY,
+          fontSize: '20px',
+          color: '#e8d9c4',
+        })
+        .setOrigin(0.5)
+        .setDepth(2002);
+      this.add
+        .zone(cx, cy, size, size)
+        .setInteractive()
+        .setDepth(2003)
+        .on('pointerdown', () => this.slice.selectElement(element));
       this.buttons.push({ element, background, icon, caption, state: null });
     });
   }
 
   private createHuman(): void {
     this.shadow = this.add.graphics();
+    const skin = 0xe7b985;
+    const cloth = 0xb86445;
+    const outline = 0x5b3b2b;
+
+    this.leftLeg = this.createLeg(cloth);
+    this.rightLeg = this.createLeg(cloth);
+    this.leftLeg.setPosition(-4, -22);
+    this.rightLeg.setPosition(4, -22);
 
     const body = this.add.graphics();
-    body.fillStyle(0xc9885a, 1);
-    body.fillEllipse(0, -26, 42, 50);
-    body.fillStyle(0xb2744a, 1);
-    body.fillEllipse(0, -14, 34, 22);
+    body.fillStyle(outline, 1);
+    body.fillRoundedRect(-8, -45, 16, 27, 7);
+    body.fillStyle(cloth, 1);
+    body.fillRoundedRect(-6, -43, 12, 23, 6);
 
-    this.leftArm = this.add.graphics();
-    this.rightArm = this.add.graphics();
-    for (const arm of [this.leftArm, this.rightArm]) {
-      arm.fillStyle(0xf0c9a0, 1);
-      arm.fillEllipse(0, 12, 12, 28);
-    }
-    this.leftArm.setPosition(-20, -38);
-    this.rightArm.setPosition(20, -38);
+    this.leftArm = this.createLimb(skin, 4.5, 19);
+    this.rightArm = this.createLimb(skin, 4.5, 19);
+    this.leftArm.setPosition(-7, -39);
+    this.rightArm.setPosition(7, -39);
 
-    // Faceless round head, pivoting at the neck.
     const headShape = this.add.graphics();
-    headShape.fillStyle(0xf0c9a0, 1);
-    headShape.fillCircle(0, -15, 18);
-    headShape.fillStyle(0x5a3a26, 1);
-    headShape.fillEllipse(0, -26, 34, 15);
-    this.head = this.add.container(0, -46, [headShape]);
+    headShape.fillStyle(outline, 1);
+    headShape.fillCircle(0, -7, 9.5);
+    headShape.fillStyle(skin, 1);
+    headShape.fillCircle(0, -7, 7.5);
+    this.head = this.add.container(0, -49, [headShape]);
 
     this.human = this.add.container(LAYOUT.humanStart.x, LAYOUT.humanStart.y, [
-      this.leftArm,
+      this.leftLeg,
+      this.rightLeg,
       body,
+      this.leftArm,
       this.rightArm,
       this.head,
     ]);
   }
 
-  private drawScenery(): void {
+  private createLimb(color: number, width: number, length: number): Phaser.GameObjects.Graphics {
+    const limb = this.add.graphics();
+    limb.fillStyle(0x5b3b2b, 1);
+    limb.fillRoundedRect(-width / 2 - 1, -1, width + 2, length + 2, width / 2);
+    limb.fillStyle(color, 1);
+    limb.fillRoundedRect(-width / 2, 0, width, length, width / 2);
+    return limb;
+  }
+
+  private createLeg(color: number): Phaser.GameObjects.Graphics {
+    const leg = this.createLimb(color, 5, 22);
+    leg.fillStyle(0x49352a, 1);
+    leg.fillRoundedRect(-3, 18, 10, 5, 2);
+    return leg;
+  }
+
+  private drawTerrainAndProps(): void {
     const g = this.add.graphics();
-    const { island, rock, cave, shelter } = LAYOUT;
-
-    // Sea.
-    g.fillStyle(0x2f6f8f, 1);
+    g.fillStyle(0x397b99, 1);
     g.fillRect(0, 0, DESIGN_WIDTH, DESIGN_HEIGHT);
-    g.fillStyle(0x3a82a3, 1);
-    g.fillEllipse(island.x, island.y + island.depth, island.rx * 2.25, island.ry * 2.5);
+    g.fillStyle(0x4a91aa, 0.7);
+    g.fillEllipse(DESIGN_WIDTH / 2, DESIGN_HEIGHT * 0.61, DESIGN_WIDTH * 1.03, DESIGN_HEIGHT * 0.39);
 
-    // Island cliff, then grass top.
-    g.fillStyle(0x7a5a3a, 1);
-    g.fillEllipse(island.x, island.y + island.depth, island.rx * 2, island.ry * 2);
-    g.fillStyle(0x6fae4f, 1);
-    g.fillEllipse(island.x, island.y, island.rx * 2, island.ry * 2);
-    g.fillStyle(0x7fbd5c, 1);
-    g.fillEllipse(island.x, island.y + island.ry * 0.12, island.rx * 1.7, island.ry * 1.55);
-
-    // Rocky hill and an ordinary cave opening.
-    g.fillStyle(0x7d8288, 1);
-    g.fillTriangle(
-      rock.x - rock.width / 2,
-      rock.baseY,
-      rock.x + rock.width / 2,
-      rock.baseY,
-      rock.x - rock.width * 0.05,
-      rock.baseY - rock.height,
-    );
-    g.fillStyle(0x969ba1, 1);
-    g.fillTriangle(
-      rock.x - rock.width * 0.1,
-      rock.baseY,
-      rock.x + rock.width / 2,
-      rock.baseY,
-      rock.x + rock.width * 0.12,
-      rock.baseY - rock.height * 0.75,
-    );
-    g.fillStyle(0x2b2e33, 1);
-    g.fillEllipse(cave.x, cave.y, cave.width, cave.height);
-
-    // Trees.
-    for (const tree of LAYOUT.trees) {
-      g.fillStyle(0x6b4a2b, 1);
-      g.fillRect(tree.x - 7 * tree.scale, tree.y - 30 * tree.scale, 14 * tree.scale, 32 * tree.scale);
-      g.fillStyle(0x2f7a3c, 1);
-      g.fillCircle(tree.x, tree.y - 52 * tree.scale, 32 * tree.scale);
-      g.fillStyle(0x3a9148, 1);
-      g.fillCircle(tree.x - 10 * tree.scale, tree.y - 60 * tree.scale, 20 * tree.scale);
+    const colors: Record<TierId, { cliff: number; top: number; edge: number }> = {
+      base: { cliff: 0x765039, top: 0x72a958, edge: 0x91c56c },
+      terrace: { cliff: 0x806044, top: 0x7fb762, edge: 0x9bcb78 },
+      plateau: { cliff: 0x676b69, top: 0x858b86, edge: 0xa0a6a0 },
+    };
+    for (const tier of LAYOUT.terrain) {
+      const palette = colors[tier.id];
+      const surface = tier.surface.map((point) => new Phaser.Math.Vector2(point.x, point.y));
+      const lower = tier.surface.map(
+        (point) => new Phaser.Math.Vector2(point.x, point.y + tier.cliff),
+      );
+      g.fillStyle(palette.cliff, 1);
+      g.fillPoints(lower, true);
+      g.fillStyle(palette.top, 1);
+      g.fillPoints(surface, true);
+      g.lineStyle(3, palette.edge, 0.7);
+      g.strokePoints(surface, true);
     }
 
-    // Animals: a sheep and a deer, very simple.
-    for (const animal of LAYOUT.animals) {
-      const { x, y } = animal;
-      if (animal.kind === 'sheep') {
-        g.fillStyle(0xf2f2ec, 1);
-        g.fillCircle(x, y - 14, 15);
-        g.fillCircle(x - 12, y - 12, 11);
-        g.fillCircle(x + 12, y - 12, 11);
-        g.fillStyle(0x4a4a4a, 1);
-        g.fillCircle(x + 20, y - 18, 8);
-        g.fillRect(x - 10, y - 2, 4, 10);
-        g.fillRect(x + 6, y - 2, 4, 10);
-      } else {
-        g.fillStyle(0xb98a58, 1);
-        g.fillEllipse(x, y - 16, 36, 20);
-        g.fillRect(x - 12, y - 8, 4, 14);
-        g.fillRect(x + 8, y - 8, 4, 14);
-        g.fillRect(x - 20, y - 38, 6, 24);
-        g.fillCircle(x - 20, y - 40, 8);
-        g.fillStyle(0x8a6238, 1);
-        g.fillTriangle(x - 24, y - 46, x - 20, y - 56, x - 17, y - 46);
-      }
+    const caveY = LAYOUT.cave.baseY - LAYOUT.cave.height * 0.38;
+    g.fillStyle(0x303432, 1);
+    g.fillEllipse(LAYOUT.cave.x, caveY, LAYOUT.cave.width, LAYOUT.cave.height);
+    g.fillStyle(0x1f2423, 1);
+    g.fillEllipse(LAYOUT.cave.x, caveY + 5, LAYOUT.cave.width * 0.72, LAYOUT.cave.height * 0.72);
+
+    for (const rock of LAYOUT.boulders) {
+      g.fillStyle(0x6c716d, 1);
+      g.fillTriangle(
+        rock.x - 19 * rock.size,
+        rock.y,
+        rock.x + 19 * rock.size,
+        rock.y,
+        rock.x + 3 * rock.size,
+        rock.y - 27 * rock.size,
+      );
+      g.fillStyle(0x999f99, 0.65);
+      g.fillTriangle(
+        rock.x - 8 * rock.size,
+        rock.y - 4,
+        rock.x + 3 * rock.size,
+        rock.y - 27 * rock.size,
+        rock.x + 12 * rock.size,
+        rock.y - 2,
+      );
     }
 
-    // Crude rain shelter: two posts and a slanted roof.
+    const shelter = LAYOUT.shelter;
     g.fillStyle(0x5a3d22, 1);
-    g.fillRect(shelter.x - shelter.width / 2, shelter.y - shelter.height, 6, shelter.height);
-    g.fillRect(shelter.x + shelter.width / 2 - 6, shelter.y - shelter.height * 0.65, 6, shelter.height * 0.65);
-    g.fillStyle(0xa98255, 1);
+    g.fillRoundedRect(shelter.x - shelter.width / 2, shelter.y - shelter.height, 7, shelter.height, 3);
+    g.fillRoundedRect(shelter.x + shelter.width / 2 - 7, shelter.y - shelter.height * 0.72, 7, shelter.height * 0.72, 3);
+    g.fillStyle(0xb08a59, 1);
     g.fillTriangle(
-      shelter.x - shelter.width / 2 - 8,
-      shelter.y - shelter.height + 4,
-      shelter.x + shelter.width / 2 + 8,
-      shelter.y - shelter.height * 0.65 + 4,
-      shelter.x - shelter.width / 2 - 8,
-      shelter.y - shelter.height * 0.65 + 4,
+      shelter.x - shelter.width / 2 - 9,
+      shelter.y - shelter.height + 2,
+      shelter.x + shelter.width / 2 + 9,
+      shelter.y - shelter.height * 0.72 + 2,
+      shelter.x - shelter.width / 2 - 9,
+      shelter.y - shelter.height * 0.7,
     );
-    g.fillStyle(0x8a6a42, 1);
-    g.fillEllipse(shelter.x, shelter.y + 2, shelter.width * 0.9, 12);
+    g.fillStyle(0x3e6b3b, 0.35);
+    for (const space of LAYOUT.growthSpaces) {
+      g.fillRoundedRect(space.left, space.top, space.right - space.left, space.bottom - space.top, 12);
+    }
+  }
+
+  private createLivingScenery(): void {
+    [...LAYOUT.trees, ...LAYOUT.foreground].forEach((tree) => {
+      this.trees.push(this.createTree(tree.x, tree.y, tree.scale));
+    });
+    LAYOUT.animals.forEach((animal) => {
+      this.animals.push(this.createAnimal(animal.x, animal.y, animal.kind));
+    });
+  }
+
+  private createTree(x: number, y: number, scale: number): Phaser.GameObjects.Container {
+    const shadow = this.add.graphics();
+    shadow.fillStyle(0x26472f, 0.28);
+    shadow.fillEllipse(5, 1, 42, 11);
+    const shape = this.add.graphics();
+    shape.fillStyle(0x65472c, 1);
+    shape.fillRoundedRect(-5, -38, 10, 39, 4);
+    shape.fillStyle(0x2f7541, 1);
+    shape.fillCircle(0, -52, 26);
+    shape.fillStyle(0x489255, 1);
+    shape.fillCircle(-10, -61, 15);
+    shape.fillCircle(13, -55, 13);
+    return this.add.container(x, y, [shadow, shape]).setScale(scale).setDepth(y);
+  }
+
+  private createAnimal(x: number, y: number, kind: AnimalKind): Phaser.GameObjects.Container {
+    const g = this.add.graphics();
+    g.fillStyle(0x24402a, 0.22);
+    g.fillEllipse(0, 2, 34, 8);
+    if (kind === 'sheep') {
+      g.fillStyle(0xf0eee3, 1);
+      g.fillCircle(-7, -15, 11);
+      g.fillCircle(5, -15, 12);
+      g.fillStyle(0x55504a, 1);
+      g.fillCircle(15, -17, 6);
+    } else {
+      g.fillStyle(0xb77e4e, 1);
+      g.fillEllipse(0, -15, 30, 15);
+      g.fillCircle(15, -25, 6);
+    }
+    g.fillStyle(kind === 'sheep' ? 0x55504a : 0x805532, 1);
+    g.fillRoundedRect(-9, -8, 3, 11, 1);
+    g.fillRoundedRect(6, -8, 3, 11, 1);
+    return this.add.container(x, y, [g]).setDepth(y);
   }
 }
