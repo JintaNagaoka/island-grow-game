@@ -15,7 +15,9 @@ export const ISLAND_SCENE_KEY = 'Island';
 
 const ICONS: Record<Element, string> = { fire: '🔥', plant: '🌱', rock: '🪨', water: '💧' };
 const FONT_FAMILY = 'sans-serif';
-const HUMAN_SPRITE_SCALE = 0.27;
+// Keep the resident visibly subordinate to the island and cave. The source
+// canvases share a 512px baseline, so one uniform scale works for every pose.
+const HUMAN_SPRITE_SCALE = 0.2;
 type ButtonState = 'available' | 'selected' | 'unavailable';
 
 interface ElementButton {

@@ -57,29 +57,57 @@ describe('human pose', () => {
     expect(standing.x).toBe(LAYOUT.humanStart.x);
   });
 
-  it('moves the approved walk asset monotonically to the warming spot with a light bob', () => {
+  it('uses only the single approved walk frame without mirroring or fake A/B poses', () => {
     const game = startedGame();
     game.advance(WAVE_DURATIONS_MS.fireAppears);
     const steps = 100;
     const dt = WAVE_DURATIONS_MS.humanNoticesAndApproaches / steps;
+    const walkingAssets = new Set<string>();
+    const facings = new Set<number>();
     const lifts = new Set<number>();
     let previousSmoothX = -Infinity;
     for (let i = 0; i < steps - 1; i += 1) {
       game.advance(dt);
       const pose = computeHumanPose(game.snapshot());
       if ((game.snapshot().activeWave?.progress ?? 0) >= 0.52) {
-        expect(pose.asset).toBe(HUMAN_ASSETS.walk);
+        walkingAssets.add(pose.asset);
+        facings.add(pose.facing);
         expect(pose.x).toBeGreaterThanOrEqual(previousSmoothX);
         previousSmoothX = pose.x;
         lifts.add(pose.lift);
+        expect(pose.lift).toBeLessThanOrEqual(2);
       }
     }
+    expect(walkingAssets).toEqual(new Set([HUMAN_ASSETS.walk]));
+    expect(facings).toEqual(new Set([1]));
     expect(lifts.size).toBeGreaterThan(10);
     game.advance(dt);
     const arrived = computeHumanPose(game.snapshot());
     expect(arrived.asset).toBe(HUMAN_ASSETS.hugKnees);
     expect(arrived.x).toBe(LAYOUT.humanWarm.x);
     expect(arrived.lift).toBeCloseTo(0);
+  });
+
+  it('limits the cold asset to the initial, fire-appearing, and notice states', () => {
+    const assetAt = (logicalMs: number) => {
+      const game = startedGame();
+      game.advance(logicalMs);
+      return computeHumanPose(game.snapshot()).asset;
+    };
+    const approach = WAVE_DURATIONS_MS.humanNoticesAndApproaches;
+    const afterFire = WAVE_DURATIONS_MS.fireAppears;
+    const afterApproach = afterFire + approach;
+
+    expect(assetAt(afterFire * 0.5)).toBe(HUMAN_ASSETS.cold);
+    expect(assetAt(afterFire + approach * 0.1)).toBe(HUMAN_ASSETS.cold);
+
+    for (const progress of [0.18, 0.3, 0.45, 0.75]) {
+      expect(assetAt(afterFire + approach * progress)).not.toBe(HUMAN_ASSETS.cold);
+    }
+    expect(assetAt(afterApproach + WAVE_DURATIONS_MS.humanWarmsUp * 0.5)).toBe(
+      HUMAN_ASSETS.hugKnees,
+    );
+    expect(assetAt(afterApproach + WAVE_DURATIONS_MS.humanWarmsUp)).toBe(HUMAN_ASSETS.idle);
   });
 
   it('warms with the approved knees-hugged pose then changes to normal idle', () => {

@@ -128,8 +128,10 @@ export function computeHumanPose(snapshot: SliceSnapshot): HumanPose {
       return { ...base, asset: HUMAN_ASSETS.side };
     }
 
-    // The approved single walk pose is moved and given only a light vertical
-    // bob. Its shape, proportions and colours remain untouched.
+    // Issue #3 has one approved walk frame and no walk-B. Keep this explicitly
+    // provisional: move human-walk with a restrained vertical bob, and do not
+    // fake an A/B cycle by mirroring, deforming, or combining other poses. A
+    // true two-frame gait requires a future user-approved walk-B asset.
     const q = clamp01((p - TURN_END) / (1 - TURN_END));
     const cycle = Math.sin(q * WALK_CYCLES * TAU);
     return {
