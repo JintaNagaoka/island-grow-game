@@ -17,7 +17,7 @@ const ICONS: Record<Element, string> = { fire: '🔥', plant: '🌱', rock: '�
 const FONT_FAMILY = 'sans-serif';
 // Keep the resident visibly subordinate to the island and cave. The source
 // canvases share a 512px baseline, so one uniform scale works for every pose.
-const HUMAN_SPRITE_SCALE = 0.2;
+const HUMAN_SPRITE_SCALE = 0.1;
 type ButtonState = 'available' | 'selected' | 'unavailable';
 
 interface ElementButton {
