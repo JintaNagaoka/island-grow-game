@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { SliceGame } from '../game/sliceGame';
-import { WAVE_DURATIONS_MS } from '../game/timing';
+import { WALK_BPM, WALK_FRAME_DURATION_MS, WAVE_DURATIONS_MS } from '../game/timing';
 import {
   HUMAN_ASSETS,
   computeEnvironmentMotion,
   computeFireVisual,
   computeHumanPose,
+  walkFrameAt,
 } from './animation';
 import { LAYOUT } from './layout';
 
@@ -57,35 +58,102 @@ describe('human pose', () => {
     expect(standing.x).toBe(LAYOUT.humanStart.x);
   });
 
-  it('uses only the single approved walk frame without mirroring or fake A/B poses', () => {
+  it('alternates walk-02 -> walk-03 at the centralized BPM frame boundaries', () => {
+    expect(WALK_BPM).toBe(97);
+    expect(WALK_FRAME_DURATION_MS).toBe(60_000 / (97 * 2));
+    expect(HUMAN_ASSETS.walkA).toBe('human-walk-02');
+    expect(HUMAN_ASSETS.walkB).toBe('human-walk-03');
+
+    const walkStart =
+      WAVE_DURATIONS_MS.fireAppears + WAVE_DURATIONS_MS.humanNoticesAndApproaches * 0.52;
+    const frame = WALK_FRAME_DURATION_MS;
+    const assetAtWalkMs = (ms: number) => {
+      const game = startedGame();
+      game.advance(walkStart + ms);
+      return computeHumanPose(game.snapshot()).asset;
+    };
+    const epsilon = 1;
+    expect(assetAtWalkMs(epsilon)).toBe(HUMAN_ASSETS.walkA);
+    expect(assetAtWalkMs(frame - epsilon)).toBe(HUMAN_ASSETS.walkA);
+    expect(assetAtWalkMs(frame + epsilon)).toBe(HUMAN_ASSETS.walkB);
+    expect(assetAtWalkMs(2 * frame - epsilon)).toBe(HUMAN_ASSETS.walkB);
+    expect(assetAtWalkMs(2 * frame + epsilon)).toBe(HUMAN_ASSETS.walkA);
+    expect(assetAtWalkMs(3 * frame + epsilon)).toBe(HUMAN_ASSETS.walkB);
+    expect(assetAtWalkMs(4 * frame + epsilon)).toBe(HUMAN_ASSETS.walkA);
+
+    expect(walkFrameAt(0)).toBe(HUMAN_ASSETS.walkA);
+    expect(walkFrameAt(frame)).toBe(HUMAN_ASSETS.walkB);
+    expect(walkFrameAt(2 * frame)).toBe(HUMAN_ASSETS.walkA);
+  });
+
+  it('walks with only the two approved frames, no mirroring, and no bounce', () => {
     const game = startedGame();
     game.advance(WAVE_DURATIONS_MS.fireAppears);
-    const steps = 100;
+    const steps = 160;
     const dt = WAVE_DURATIONS_MS.humanNoticesAndApproaches / steps;
-    const walkingAssets = new Set<string>();
-    const facings = new Set<number>();
-    const lifts = new Set<number>();
-    let previousSmoothX = -Infinity;
+    const sequence: string[] = [];
+    let previousX = -Infinity;
     for (let i = 0; i < steps - 1; i += 1) {
       game.advance(dt);
       const pose = computeHumanPose(game.snapshot());
-      if ((game.snapshot().activeWave?.progress ?? 0) >= 0.52) {
-        walkingAssets.add(pose.asset);
-        facings.add(pose.facing);
-        expect(pose.x).toBeGreaterThanOrEqual(previousSmoothX);
-        previousSmoothX = pose.x;
-        lifts.add(pose.lift);
-        expect(pose.lift).toBeLessThanOrEqual(2);
-      }
+      if ((game.snapshot().activeWave?.progress ?? 0) < 0.52) continue;
+      expect(pose.facing).toBe(1);
+      expect(pose.lift).toBe(0);
+      expect(pose.y).toBe(LAYOUT.humanStart.y);
+      expect(pose.x).toBeGreaterThanOrEqual(previousX);
+      previousX = pose.x;
+      if (sequence[sequence.length - 1] !== pose.asset) sequence.push(pose.asset);
     }
-    expect(walkingAssets).toEqual(new Set([HUMAN_ASSETS.walk]));
-    expect(facings).toEqual(new Set([1]));
-    expect(lifts.size).toBeGreaterThan(10);
+    expect(sequence).toEqual([
+      HUMAN_ASSETS.walkA,
+      HUMAN_ASSETS.walkB,
+      HUMAN_ASSETS.walkA,
+      HUMAN_ASSETS.walkB,
+      HUMAN_ASSETS.walkA,
+    ]);
     game.advance(dt);
     const arrived = computeHumanPose(game.snapshot());
     expect(arrived.asset).toBe(HUMAN_ASSETS.hugKnees);
     expect(arrived.x).toBe(LAYOUT.humanWarm.x);
-    expect(arrived.lift).toBeCloseTo(0);
+  });
+
+  it('keeps frame order, state order, and final WorldState across playback speeds', () => {
+    const run = (playbackSpeed: number) => {
+      const game = new SliceGame({ playbackSpeed });
+      game.selectElement('fire');
+      const total =
+        WAVE_DURATIONS_MS.fireAppears +
+        WAVE_DURATIONS_MS.humanNoticesAndApproaches +
+        WAVE_DURATIONS_MS.humanWarmsUp +
+        500;
+      const realStep = 5 / playbackSpeed;
+      const sequence: string[] = [];
+      for (let logical = 0; logical < total; logical += 5) {
+        game.advance(realStep);
+        const asset = computeHumanPose(game.snapshot()).asset;
+        if (sequence[sequence.length - 1] !== asset) sequence.push(asset);
+      }
+      return { sequence, world: game.snapshot().world, phase: game.snapshot().phase };
+    };
+    const normal = run(1);
+    expect(normal.sequence).toEqual([
+      HUMAN_ASSETS.cold,
+      HUMAN_ASSETS.crouch,
+      HUMAN_ASSETS.side,
+      HUMAN_ASSETS.walkA,
+      HUMAN_ASSETS.walkB,
+      HUMAN_ASSETS.walkA,
+      HUMAN_ASSETS.walkB,
+      HUMAN_ASSETS.walkA,
+      HUMAN_ASSETS.hugKnees,
+      HUMAN_ASSETS.idle,
+    ]);
+    for (const speed of [0.5, 2, 4]) {
+      const other = run(speed);
+      expect(other.sequence).toEqual(normal.sequence);
+      expect(other.world).toEqual(normal.world);
+      expect(other.phase).toBe('completed');
+    }
   });
 
   it('limits the cold asset to the initial, fire-appearing, and notice states', () => {

@@ -1,4 +1,5 @@
 import type { SliceSnapshot } from '../game/sliceGame';
+import { WALK_FRAME_DURATION_MS, WAVE_DURATIONS_MS } from '../game/timing';
 import { LAYOUT } from './layout';
 
 // Pure visual state derived from the authoritative game snapshot. Phaser only
@@ -14,7 +15,8 @@ export interface HumanPose {
 export const HUMAN_ASSETS = {
   idle: 'human-idle',
   side: 'human-side',
-  walk: 'human-walk',
+  walkA: 'human-walk-02',
+  walkB: 'human-walk-03',
   run: 'human-run',
   crouch: 'human-crouch',
   sit: 'human-sit',
@@ -39,7 +41,6 @@ export interface EnvironmentMotion {
 const NOTICE_END = 0.18;
 const STAND_END = 0.42;
 const TURN_END = 0.52;
-const WALK_CYCLES = 4;
 const TAU = Math.PI * 2;
 
 const clamp01 = (value: number): number => Math.min(1, Math.max(0, value));
@@ -92,6 +93,16 @@ export function computeEnvironmentMotion(snapshot: SliceSnapshot): EnvironmentMo
   };
 }
 
+// Logical ms since the walk began, derived from Wave progress.
+function walkElapsedMs(waveProgress: number): number {
+  return (waveProgress - TURN_END) * WAVE_DURATIONS_MS.humanNoticesAndApproaches;
+}
+
+export function walkFrameAt(walkElapsedMs: number): HumanAsset {
+  const frame = Math.floor(walkElapsedMs / WALK_FRAME_DURATION_MS);
+  return frame % 2 === 0 ? HUMAN_ASSETS.walkA : HUMAN_ASSETS.walkB;
+}
+
 export function computeHumanPose(snapshot: SliceSnapshot): HumanPose {
   const seconds = snapshot.clockMs / 1000;
   const wave = snapshot.activeWave;
@@ -128,17 +139,14 @@ export function computeHumanPose(snapshot: SliceSnapshot): HumanPose {
       return { ...base, asset: HUMAN_ASSETS.side };
     }
 
-    // Issue #3 has one approved walk frame and no walk-B. Keep this explicitly
-    // provisional: move human-walk with a restrained vertical bob, and do not
-    // fake an A/B cycle by mirroring, deforming, or combining other poses. A
-    // true two-frame gait requires a future user-approved walk-B asset.
-    const q = clamp01((p - TURN_END) / (1 - TURN_END));
-    const cycle = Math.sin(q * WALK_CYCLES * TAU);
+    // Two approved frames alternate walk-02 -> walk-03 from the logical clock
+    // (Wave progress x duration), with no mirroring, morphing, or bounce. The
+    // frame boundary comes from WALK_FRAME_DURATION_MS in game/timing.ts.
+    const walkProgress = (p - TURN_END) / (1 - TURN_END);
     return {
       ...base,
-      asset: HUMAN_ASSETS.walk,
-      x: lerp(LAYOUT.humanStart.x, LAYOUT.humanWarm.x, smoothstep(q)),
-      lift: Math.abs(cycle) * 2,
+      asset: walkFrameAt(walkElapsedMs(p)),
+      x: lerp(LAYOUT.humanStart.x, LAYOUT.humanWarm.x, smoothstep(walkProgress)),
     };
   }
 
