@@ -19,6 +19,10 @@ export interface ActiveWave {
   readonly index: number;
   // 0 (just started) up to but excluding 1, in logical time.
   readonly progress: number;
+  // Logical (playback-speed-scaled) time into this Wave and its full length.
+  // Presentation uses these instead of assuming a Wave's configured duration.
+  readonly elapsedMs: number;
+  readonly durationMs: number;
 }
 
 export interface SliceSnapshot {
@@ -128,6 +132,8 @@ export class SliceGame {
       id: wave.id,
       index: this.waveIndex,
       progress: wave.durationMs > 0 ? this.waveElapsedMs / wave.durationMs : 0,
+      elapsedMs: this.waveElapsedMs,
+      durationMs: wave.durationMs,
     };
   }
 }

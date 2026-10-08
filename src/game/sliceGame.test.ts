@@ -48,7 +48,13 @@ describe('fire selection', () => {
     expect(snapshot.world.selectedElements).toEqual(['fire']);
     expect(snapshot.phase).toBe('playing');
     expect(snapshot.inputLocked).toBe(true);
-    expect(snapshot.activeWave).toEqual({ id: 'fire-appears', index: 0, progress: 0 });
+    expect(snapshot.activeWave).toEqual({
+      id: 'fire-appears',
+      index: 0,
+      progress: 0,
+      elapsedMs: 0,
+      durationMs: WAVE1,
+    });
     // Persistent state is not yet established while Wave 1 is playing.
     expect(snapshot.world.fireStage).toBe(0);
     expect(snapshot.world.isCold).toBe(true);
@@ -221,7 +227,27 @@ describe('Wave order and completion gating', () => {
     game.selectElement('fire');
     game.snapshot();
     game.snapshot();
-    expect(game.snapshot().activeWave).toEqual({ id: 'fire-appears', index: 0, progress: 0 });
+    expect(game.snapshot().activeWave).toEqual({
+      id: 'fire-appears',
+      index: 0,
+      progress: 0,
+      elapsedMs: 0,
+      durationMs: WAVE1,
+    });
+  });
+
+  it('exposes active-Wave elapsed logical time for any configured duration', () => {
+    const waves: Wave[] = FIRE_WARMING_WAVES.map((wave) => ({ ...wave, durationMs: wave.durationMs * 3 }));
+    const game = new SliceGame({ waves, playbackSpeed: 2 });
+    game.selectElement('fire');
+    // Real time at 2x: Wave 1 (3x long) takes WAVE1 * 1.5 real ms; 500 more real
+    // ms is 1000 logical ms into the second Wave.
+    game.advance(WAVE1 * 1.5 + 500);
+    const active = game.snapshot().activeWave;
+    expect(active?.id).toBe('human-notices-and-approaches');
+    expect(active?.durationMs).toBe(WAVE2 * 3);
+    expect(active?.elapsedMs).toBeCloseTo(1000, 6);
+    expect(active?.progress).toBeCloseTo(1000 / (WAVE2 * 3), 6);
   });
 
   it('rejects invalid deltas', () => {

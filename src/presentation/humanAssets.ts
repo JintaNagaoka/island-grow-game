@@ -84,3 +84,79 @@ export function selectHumanAsset(
 ): HumanAssetMetadata {
   return HUMAN_ASSETS[animationState][isCold ? 'isCold' : 'normal'];
 }
+
+// Every approved human PNG is a 512x512 canvas.
+export const HUMAN_FRAME_SIZE = 512;
+
+// Sprite origin (0..1) that puts the asset's ground anchor on the sprite's
+// ground position.
+export function humanAssetOrigin(metadata: HumanAssetMetadata): { x: number; y: number } {
+  return {
+    x: metadata.groundAnchorX / HUMAN_FRAME_SIZE,
+    y: metadata.groundAnchorY / HUMAN_FRAME_SIZE,
+  };
+}
+
+// Approved four-direction walk (human-walk-4dir-approved-v1). The 12 canonical
+// PNGs are base-body frames only: they carry no cold variant, and the left PNGs
+// are supplied directly, so nothing here is ever flipped at runtime. Timing and
+// movement live in humanWalk.ts; this registry is only asset identity.
+export const HUMAN_WALK_DIRECTIONS = ['up', 'down', 'left', 'right'] as const;
+export const HUMAN_WALK_POSES = ['step-a', 'stand', 'step-b'] as const;
+
+export type HumanWalkDirection = (typeof HUMAN_WALK_DIRECTIONS)[number];
+export type HumanWalkPose = (typeof HUMAN_WALK_POSES)[number];
+export type HumanWalkTextureKey = `human-walk-${HumanWalkDirection}-${HumanWalkPose}`;
+
+export const HUMAN_WALK_FRAME_SIZE = HUMAN_FRAME_SIZE;
+// Shared origin of every walk frame: pixel (256, 466) of the 512x512 canvas.
+export const HUMAN_WALK_ORIGIN = { x: 0.5, y: 0.91015625 } as const;
+
+export interface HumanWalkAssetMetadata {
+  readonly textureKey: HumanWalkTextureKey;
+  // Relative to /assets/human/.
+  readonly filename: string;
+  readonly direction: HumanWalkDirection;
+  readonly pose: HumanWalkPose;
+}
+
+export function humanWalkTextureKey(
+  direction: HumanWalkDirection,
+  pose: HumanWalkPose,
+): HumanWalkTextureKey {
+  return `human-walk-${direction}-${pose}`;
+}
+
+export const HUMAN_WALK_ASSET_LIST: readonly HumanWalkAssetMetadata[] =
+  HUMAN_WALK_DIRECTIONS.flatMap((direction) =>
+    HUMAN_WALK_POSES.map((pose) => {
+      const textureKey = humanWalkTextureKey(direction, pose);
+      return { textureKey, filename: `walk/${textureKey}.png`, direction, pose };
+    }),
+  );
+
+export function selectHumanWalkAsset(
+  direction: HumanWalkDirection,
+  pose: HumanWalkPose,
+): HumanWalkAssetMetadata {
+  const textureKey = humanWalkTextureKey(direction, pose);
+  const metadata = HUMAN_WALK_ASSET_LIST.find((asset) => asset.textureKey === textureKey);
+  if (!metadata) throw new RangeError(`unknown human walk asset: ${textureKey}`);
+  return metadata;
+}
+
+export interface HumanWalkPresentation {
+  readonly asset: HumanWalkAssetMetadata;
+  // The walk art has no cold variant, so the existing cold presentation is
+  // layered on top. WorldState.isCold is its only source of truth; direction
+  // and pose never influence it.
+  readonly coldOverlay: boolean;
+}
+
+export function selectHumanWalkPresentation(
+  direction: HumanWalkDirection,
+  pose: HumanWalkPose,
+  isCold: boolean,
+): HumanWalkPresentation {
+  return { asset: selectHumanWalkAsset(direction, pose), coldOverlay: isCold };
+}
