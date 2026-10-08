@@ -57,9 +57,8 @@ export interface EnvironmentMotion {
   readonly animalOffsets: readonly { x: number; y: number; turn: number }[];
 }
 
-// Beat boundaries inside the approach Wave, as fractions of its logical length.
-// Provisional timing: a human play-review decision.
-const NOTICE_END = 0.18;
+// Beat boundary inside the approach Wave, as a fraction of its logical length;
+// the walk begins here. Provisional timing: a human play-review decision.
 const WALK_START = 0.52;
 const TAU = Math.PI * 2;
 
@@ -171,9 +170,9 @@ export function computeHumanPose(snapshot: SliceSnapshot): HumanPose {
   if (wave?.index === 1) {
     const p = wave.progress;
 
-    // Notice the newly established fire, then stand up, before walking.
-    if (p < NOTICE_END) return stillPose('notice', isCold, LAYOUT.humanStart);
-    if (p < WALK_START) return stillPose('rise', isCold, LAYOUT.humanStart);
+    // Notice the newly established fire until the walk starts. The notice art
+    // already shows the human standing, so there is no separate rise pose.
+    if (p < WALK_START) return stillPose('notice', isCold, LAYOUT.humanStart);
 
     // Walk to the fire at the fixed ground speed in logical time since the
     // walk began (the Wave's own elapsed time, whatever its duration). Arrival,

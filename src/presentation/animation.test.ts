@@ -67,15 +67,18 @@ describe('human pose', () => {
     expect(poseAt(WAVE1 * 0.5).pose.asset).toBe(textureOf('cold', true));
   });
 
-  it('notices, then rises, at the start position before walking', () => {
-    const noticing = poseAt(WAVE1 + WAVE2 * 0.1).pose;
-    expect(noticing.asset).toBe(textureOf('notice', true));
-    expect(noticing.x).toBe(LAYOUT.humanStart.x);
-    expect(noticing.lift).toBe(0);
-    const rising = poseAt(WAVE1 + WAVE2 * 0.3).pose;
-    expect(rising.asset).toBe(textureOf('rise', true));
-    expect(rising.x).toBe(LAYOUT.humanStart.x);
-    expect(rising.walk).toBeNull();
+  it('holds notice at the start position until the walk starts, with no rise pose', () => {
+    for (const progress of [0.1, 0.3, WALK_START - 0.01]) {
+      const noticing = poseAt(WAVE1 + WAVE2 * progress).pose;
+      expect(noticing.asset).toBe(textureOf('notice', true));
+      expect(noticing.x).toBe(LAYOUT.humanStart.x);
+      expect(noticing.lift).toBe(0);
+      expect(noticing.walk).toBeNull();
+    }
+    const walking = poseAt(WAVE1 + WAVE2 * WALK_START + 100).pose;
+    expect(walking.walk).not.toBeNull();
+    expect(walking.asset).toMatch(/^human-walk-right-/);
+    expect(walking.x).toBeGreaterThan(LAYOUT.humanStart.x);
   });
 
   it('walks right to the fire with the approved frames, never flipped, then hands off to warm', () => {
@@ -162,11 +165,11 @@ describe('human pose', () => {
         expect(pose.asset.endsWith('_isCold')).toBe(world.isCold);
       }
     }
-    for (const required of ['cold_isCold', 'notice_isCold', 'rise_isCold', 'warm_isCold', 'idle']) {
+    for (const required of ['cold_isCold', 'notice_isCold', 'warm_isCold', 'idle']) {
       expect(seen).toContain(required);
     }
     // isCold=false never brings back a cold asset or overlay.
-    expect([...seen].filter((asset) => asset.endsWith('_isCold')).length).toBe(4);
+    expect([...seen].filter((asset) => asset.endsWith('_isCold')).length).toBe(3);
   });
 
   it('derives the walk from active-Wave elapsed time, so custom Wave durations cannot desync it', () => {
