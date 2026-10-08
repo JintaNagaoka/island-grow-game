@@ -3,12 +3,26 @@ import { SliceGame, type SliceSnapshot } from '../game/sliceGame';
 import { MAX_FRAME_DELTA_MS } from '../game/timing';
 import { ELEMENTS, type Element } from '../game/worldState';
 import {
-  HUMAN_ASSETS,
   computeEnvironmentMotion,
   computeFireVisual,
   computeHumanPose,
+  computeWalkPreviewPose,
+  type HumanPose,
 } from './animation';
+import {
+  COLD_HEAD_COLOR,
+  COLD_MARK_COLOR,
+  COLD_MARK_WIDTH,
+  computeColdOverlay,
+} from './coldOverlay';
 import { DESIGN_HEIGHT, DESIGN_WIDTH } from './display';
+import {
+  HUMAN_ASSET_LIST,
+  HUMAN_FRAME_SIZE,
+  HUMAN_WALK_ASSET_LIST,
+  selectHumanAsset,
+} from './humanAssets';
+import { HUMAN_WALK_ANIMATIONS, planHumanAnimation } from './humanWalk';
 import { LAYOUT, type AnimalKind, type TierId } from './layout';
 
 export const ISLAND_SCENE_KEY = 'Island';
@@ -16,8 +30,12 @@ export const ISLAND_SCENE_KEY = 'Island';
 const ICONS: Record<Element, string> = { fire: '🔥', plant: '🌱', rock: '🪨', water: '💧' };
 const FONT_FAMILY = 'sans-serif';
 // Keep the resident visibly subordinate to the island and cave. The source
-// canvases share a 512px baseline, so one uniform scale works for every pose.
+// canvases are all 512px, so one uniform scale works for every pose.
 const HUMAN_SPRITE_SCALE = 0.1;
+// Review-only loop that walks the human up/down/left/right (npm run dev, then
+// open /?humanWalkPreview). Never active in production builds.
+const WALK_PREVIEW_ENABLED =
+  import.meta.env.DEV && new URLSearchParams(window.location.search).has('humanWalkPreview');
 type ButtonState = 'available' | 'selected' | 'unavailable';
 
 interface ElementButton {
@@ -37,19 +55,33 @@ export class IslandScene extends Phaser.Scene {
   private animals: Phaser.GameObjects.Container[] = [];
   private shadow!: Phaser.GameObjects.Graphics;
   private fireGraphics!: Phaser.GameObjects.Graphics;
-  private human!: Phaser.GameObjects.Image;
+  // The single human renderer: one Sprite for every pose and walk frame.
+  private human!: Phaser.GameObjects.Sprite;
+  private humanCold!: Phaser.GameObjects.Graphics;
 
   constructor() {
     super(ISLAND_SCENE_KEY);
   }
 
   preload(): void {
-    for (const asset of Object.values(HUMAN_ASSETS)) {
-      this.load.image(asset, `/assets/human/${asset}.png`);
+    for (const asset of HUMAN_ASSET_LIST) {
+      this.load.image(asset.textureKey, `/assets/human/${asset.filename}`);
+    }
+    for (const asset of HUMAN_WALK_ASSET_LIST) {
+      this.load.image(asset.textureKey, `/assets/human/${asset.filename}`);
     }
   }
 
   create(): void {
+    for (const definition of HUMAN_WALK_ANIMATIONS) {
+      if (this.anims.exists(definition.key)) continue;
+      this.anims.create({
+        key: definition.key,
+        frames: definition.frames.map((frame) => ({ key: frame.key })),
+        frameRate: definition.frameRate,
+        repeat: definition.repeat,
+      });
+    }
     this.slice = new SliceGame();
     this.buttons = [];
     this.trees = [];
@@ -87,11 +119,15 @@ export class IslandScene extends Phaser.Scene {
   }
 
   private renderHuman(snapshot: SliceSnapshot): void {
-    const pose = computeHumanPose(snapshot);
+    const pose = WALK_PREVIEW_ENABLED
+      ? computeWalkPreviewPose(snapshot.clockMs, snapshot.world.isCold)
+      : computeHumanPose(snapshot);
     this.human.setPosition(pose.x, pose.y - pose.lift);
-    this.human.setTexture(pose.asset);
+    this.human.setOrigin(pose.originX, pose.originY);
+    this.applyHumanFrame(pose);
     this.human.setScale(pose.facing * HUMAN_SPRITE_SCALE, HUMAN_SPRITE_SCALE);
     this.human.setDepth(pose.y + 2);
+    this.renderHumanCold(pose);
 
     const shadowScale = 1 - Math.min(0.32, pose.lift / 28);
     this.shadow.clear();
@@ -103,6 +139,66 @@ export class IslandScene extends Phaser.Scene {
       8 * shadowScale,
     );
     this.shadow.setDepth(pose.y);
+  }
+
+  // Walk poses play the per-direction Phaser animation; planHumanAnimation()
+  // decides when to start (key change only), pin, or stop it. Phaser's own timer
+  // is not trusted: after starting, the current frame is pinned to the one the
+  // logical clock selects, so playback speed and frame-time hiccups cannot
+  // desynchronize it, and no rule ever waits on animation completion. Any
+  // non-walk pose stops the animation, so nothing keeps walking after arrival.
+  private applyHumanFrame(pose: HumanPose): void {
+    const anims = this.human.anims;
+    const playingKey = anims.isPlaying ? (anims.currentAnim?.key ?? null) : null;
+    const command = planHumanAnimation(playingKey, pose.walk);
+    if (command.type === 'start') {
+      this.human.play(command.key, true);
+    } else if (command.type === 'stop') {
+      anims.stop();
+    }
+    if (pose.walk && (command.type === 'start' || command.type === 'pin')) {
+      const animation = this.anims.get(pose.walk.animationKey);
+      // Registered in create(); a missing one is a programming error.
+      if (!animation) throw new Error(`missing human walk animation: ${pose.walk.animationKey}`);
+      anims.setCurrentFrame(animation.frames[command.frameIndex]);
+      return;
+    }
+    if (this.human.texture.key !== pose.asset) this.human.setTexture(pose.asset);
+  }
+
+  // Draws the cold marks over a walk frame, in the sprite's own source-pixel
+  // space so they track the frame's origin and the shared sprite scale.
+  private renderHumanCold(pose: HumanPose): void {
+    const g = this.humanCold;
+    g.clear();
+    if (!pose.coldOverlay || !pose.walk) return;
+    const shapes = computeColdOverlay(pose.walk.direction);
+    const originX = pose.originX * HUMAN_FRAME_SIZE;
+    const originY = pose.originY * HUMAN_FRAME_SIZE;
+    const worldX = (sourceX: number): number =>
+      pose.x + (sourceX - originX) * pose.facing * HUMAN_SPRITE_SCALE;
+    const worldY = (sourceY: number): number =>
+      pose.y - pose.lift + (sourceY - originY) * HUMAN_SPRITE_SCALE;
+
+    for (const band of shapes.tintBands) {
+      g.fillStyle(COLD_HEAD_COLOR, band.alpha);
+      g.fillRect(
+        worldX(band.left),
+        worldY(band.top),
+        band.width * HUMAN_SPRITE_SCALE,
+        band.height * HUMAN_SPRITE_SCALE,
+      );
+    }
+    g.lineStyle(COLD_MARK_WIDTH * HUMAN_SPRITE_SCALE, COLD_MARK_COLOR, 1);
+    for (const mark of shapes.marks) {
+      g.beginPath();
+      mark.forEach((point, index) => {
+        if (index === 0) g.moveTo(worldX(point.x), worldY(point.y));
+        else g.lineTo(worldX(point.x), worldY(point.y));
+      });
+      g.strokePath();
+    }
+    g.setDepth(pose.y + 3);
   }
 
   private renderFire(snapshot: SliceSnapshot): void {
@@ -221,10 +317,11 @@ export class IslandScene extends Phaser.Scene {
 
   private createHuman(): void {
     this.shadow = this.add.graphics();
+    const initial = selectHumanAsset('cold', true);
     this.human = this.add
-      .image(LAYOUT.humanStart.x, LAYOUT.humanStart.y, HUMAN_ASSETS.cold)
-      .setOrigin(0.5, 0.9375)
+      .sprite(LAYOUT.humanStart.x, LAYOUT.humanStart.y, initial.textureKey)
       .setScale(HUMAN_SPRITE_SCALE);
+    this.humanCold = this.add.graphics();
   }
 
   private drawTerrainAndProps(): void {

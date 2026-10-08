@@ -78,6 +78,14 @@ export const LAYOUT = {
   shelter: { x: x(0.17), y: y(0.655), width: x(0.15), height: y(0.065) },
   humanStart: { x: x(0.3), y: y(0.665) },
   humanWarm: { x: x(0.6), y: y(0.665) },
+  // Dev-only review loop (?humanWalkPreview): a rectangle that walks right,
+  // down, left, then up so each approved view can be checked on a phone screen.
+  humanWalkPreview: [
+    { x: x(0.35), y: y(0.62) },
+    { x: x(0.65), y: y(0.62) },
+    { x: x(0.65), y: y(0.72) },
+    { x: x(0.35), y: y(0.72) },
+  ] as readonly Point[],
   fire: { x: x(0.7), y: y(0.67) },
   // Foreground framing drawn in front of everything on the island.
   foreground: [
