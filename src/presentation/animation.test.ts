@@ -126,9 +126,15 @@ describe('human pose', () => {
         expect(snapshot.world.isCold).toBe(true);
       }
     }
-    expect(frames).toEqual(
-      new Set(['human-walk-right-step-a', 'human-walk-right-stand', 'human-walk-right-step-b']),
-    );
+    // The approved scene walk is very short (composition takes priority), so it
+    // may show only the first frames of the cycle; whatever shows must be an
+    // approved right-facing frame, starting at step-a. The full cycle is covered
+    // by the walk-preview tests in humanWalk.test.ts.
+    expect(frames.size).toBeGreaterThanOrEqual(1);
+    expect(frames.has('human-walk-right-step-a')).toBe(true);
+    for (const frame of frames) {
+      expect(['human-walk-right-step-a', 'human-walk-right-stand', 'human-walk-right-step-b']).toContain(frame);
+    }
     expect(sawArrival).toBe(true);
   });
 

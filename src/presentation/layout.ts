@@ -51,8 +51,8 @@ export const LAYOUT = {
   animal: assetGround(WORLD_ASSETS.animal),
   // Front: shelter, human, fire on the sand, with the open path kept free.
   shelter: assetGround(WORLD_ASSETS.shelter),
-  humanStart: onIsland(420, 960),
-  humanWarm: onIsland(495, 960),
+  humanStart: onIsland(346, 971),
+  humanWarm: onIsland(373, 971),
   // Dev-only review loop (?humanWalkPreview): a rectangle that walks right,
   // down, left, then up so each approved view can be checked on a phone screen.
   humanWalkPreview: [onIsland(390, 740), onIsland(540, 740), onIsland(540, 850), onIsland(390, 850)] as readonly Point[],

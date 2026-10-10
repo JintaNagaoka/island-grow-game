@@ -83,7 +83,7 @@ export const WORLD_ASSETS = {
     groundAnchor: { x: 128, y: 246 },
     baseScale: 0.22,
     placementSpace: 'island',
-    placement: { x: 569, y: 960 },
+    placement: { x: 432, y: 971 },
   },
 } as const satisfies Record<string, WorldAsset>;
 

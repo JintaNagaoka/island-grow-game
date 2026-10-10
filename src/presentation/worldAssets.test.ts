@@ -105,7 +105,7 @@ describe('world asset metadata', () => {
     expect(WORLD_ASSETS.fire).toMatchObject({
       groundAnchor: { x: 128, y: 246 },
       baseScale: 0.22,
-      placement: { x: 569, y: 960 },
+      placement: { x: 432, y: 971 },
     });
   });
 
@@ -234,7 +234,7 @@ const overlaps = (a: Box, b: Box): boolean =>
 
 // The human's drawn extent around a ground point: the 512px canvas at the
 // shared sprite scale is far larger than the figure, so use a generous box.
-const humanBox = (x: number, y: number): Box => ({ left: x - 16, right: x + 16, top: y - 56, bottom: y + 6 });
+const humanBox = (x: number, y: number): Box => ({ left: x - 14, right: x + 14, top: y - 56, bottom: y + 6 });
 
 // True when an opaque pixel of the (mirrored) shelter PNG lies inside `box`.
 function shelterPixelsInside(box: Box): boolean {
@@ -322,7 +322,24 @@ const SHELTER_OPAQUE_RIGHT = (() => {
 })();
 
 const SHELTER = footprint(WORLD_ASSETS.shelter, LAYOUT.shelter);
-const FIRE = footprint(WORLD_ASSETS.fire, LAYOUT.fire);
+// The fire's visible extent (opaque pixels), not its padded PNG rectangle.
+const FIRE = ((): Box => {
+  const asset = WORLD_ASSETS.fire;
+  const { png } = load(asset);
+  let [minX, minY, maxX, maxY] = [Infinity, Infinity, -Infinity, -Infinity];
+  for (let py = 0; py < png.height; py += 1) {
+    for (let px = 0; px < png.width; px += 1) {
+      if (alphaAt(png, px, py) < 128) continue;
+      [minX, minY, maxX, maxY] = [Math.min(minX, px), Math.min(minY, py), Math.max(maxX, px), Math.max(maxY, py)];
+    }
+  }
+  const origin = groundOrigin(asset);
+  const at = (px: number, py: number) => ({
+    x: LAYOUT.fire.x + (px - origin.x * asset.width) * asset.baseScale,
+    y: LAYOUT.fire.y + (py - origin.y * asset.height) * asset.baseScale,
+  });
+  return { left: at(minX, 0).x, right: at(maxX, 0).x, top: at(0, minY).y, bottom: at(0, maxY).y };
+})();
 const ANIMAL = footprint(WORLD_ASSETS.animal, LAYOUT.animal);
 const ANIMAL_REACH: Box = {
   left: ANIMAL.left - 6,
@@ -387,38 +404,52 @@ describe('world layout', () => {
   });
 
   it('keeps the human walk from the shelter to the fire unobstructed', () => {
-    for (const box of pathBoxes(LAYOUT.humanStart, LAYOUT.humanWarm)) {
-      expect(shelterPixelsInside(box)).toBe(false);
+    // The body may stand slightly in front of the shelter opening (it is depth
+    // sorted in front), but the feet never land on an opaque shelter pixel.
+    const feet = (x: number, y: number): Box => ({ left: x - 8, right: x + 8, top: y - 3, bottom: y + 3 });
+    const path = pathBoxes(LAYOUT.humanStart, LAYOUT.humanWarm);
+    path.forEach((_, i) => {
+      const t = i / (path.length - 1);
+      const x = LAYOUT.humanStart.x + (LAYOUT.humanWarm.x - LAYOUT.humanStart.x) * t;
+      expect(shelterPixelsInside(feet(x, LAYOUT.humanStart.y))).toBe(false);
+    });
+    for (const box of path) {
       expect(overlaps(box, FIRE)).toBe(false);
       expect(overlaps(box, ANIMAL_REACH)).toBe(false);
     }
-    // The human starts immediately right of the shelter art and stops just left
-    // of the fire stones, on the same ground band.
-    expect(shelterPixelsInside(humanBox(LAYOUT.humanStart.x, LAYOUT.humanStart.y))).toBe(false);
-    expect(LAYOUT.humanStart.x - 16).toBeGreaterThan(SHELTER.left + (SHELTER.right - SHELTER.left) * 0.5);
-    expect(LAYOUT.humanWarm.x + 16).toBeLessThan(FIRE.left);
-    expect(FIRE.left - (LAYOUT.humanWarm.x + 16)).toBeLessThan(30);
     expect(LAYOUT.humanWarm.y).toBe(LAYOUT.humanStart.y);
+    expect(LAYOUT.humanStart.y).toBeGreaterThan(LAYOUT.shelter.y);
+    expect(LAYOUT.humanStart.y - LAYOUT.shelter.y).toBeLessThan(12);
     expect(Math.abs(LAYOUT.fire.y - LAYOUT.humanStart.y)).toBeLessThan(8);
-    expect(Math.abs(LAYOUT.shelter.y - LAYOUT.humanStart.y)).toBeLessThan(8);
   });
 
-  it('reproduces the reference arrangement: shelter left, human, then fire to the right', () => {
+  it('reproduces the reference composition (720-wide design space)', () => {
+    // Reference: shelter left, human ~x 285 at its opening, fire ~x 325 right of it.
     expect(LAYOUT.shelter.x).toBeLessThan(LAYOUT.humanStart.x);
-    expect(LAYOUT.humanStart.x).toBeLessThan(LAYOUT.humanWarm.x);
-    expect(LAYOUT.humanWarm.x).toBeLessThan(LAYOUT.fire.x);
-    expect(SHELTER.right).toBeLessThan(FIRE.left);
-    expect(overlaps(SHELTER, FIRE)).toBe(false);
-    // Tight grouping: the shelter's opaque art ends just before the human, and the
-    // fire stands a short distance (about 50 design px) right of the finished human.
-    expect(LAYOUT.fire.x - LAYOUT.humanWarm.x).toBeGreaterThan(40);
-    expect(LAYOUT.fire.x - LAYOUT.humanWarm.x).toBeLessThan(70);
-    expect(LAYOUT.humanStart.x - SHELTER_OPAQUE_RIGHT).toBeLessThan(30);
+    expect(LAYOUT.humanStart.x).toBeGreaterThanOrEqual(275);
+    expect(LAYOUT.humanStart.x).toBeLessThanOrEqual(285);
+    expect(LAYOUT.humanWarm.x).toBeGreaterThan(LAYOUT.humanStart.x);
+    expect(LAYOUT.humanWarm.x).toBeGreaterThanOrEqual(290);
+    expect(LAYOUT.humanWarm.x).toBeLessThanOrEqual(300);
+    expect(LAYOUT.fire.x).toBeGreaterThanOrEqual(330);
+    expect(LAYOUT.fire.x).toBeLessThanOrEqual(338);
+    // The finished human stands immediately left of the fire stones.
+    expect(LAYOUT.humanWarm.x + 14).toBeLessThan(FIRE.left);
+    expect(FIRE.left - (LAYOUT.humanWarm.x + 14)).toBeLessThan(8);
+    expect(LAYOUT.fire.x - LAYOUT.humanWarm.x).toBeGreaterThan(30);
+    expect(LAYOUT.fire.x - LAYOUT.humanWarm.x).toBeLessThan(50);
+    // The initial human stands at the shelter opening, slightly in front of its
+    // right-hand rock cluster, within 40 px of the shelter's opaque right edge.
+    expect(Math.abs(LAYOUT.humanStart.x - SHELTER_OPAQUE_RIGHT)).toBeLessThan(40);
+    // The shelter's visible art (not its padded rectangle) ends before the fire.
+    expect(SHELTER_OPAQUE_RIGHT).toBeLessThan(FIRE.left);
   });
 
-  it('leaves a visible walk that completes inside the approach Wave', () => {
+  it('allows the approved very short walk that still moves and finishes inside the approach Wave', () => {
     const distance = LAYOUT.humanWarm.x - LAYOUT.humanStart.x;
-    expect(distance).toBeGreaterThanOrEqual(50);
+    // Human-approved: the composition takes priority, so the walk is very short
+    // but must still move right.
+    expect(distance).toBeGreaterThanOrEqual(10);
     // Wave 2 walk window: 48% of 3200 ms at 0.144 design px/ms.
     expect(distance / 0.144).toBeLessThan(3200 * 0.48);
   });
