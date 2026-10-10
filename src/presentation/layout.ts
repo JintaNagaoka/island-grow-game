@@ -1,7 +1,9 @@
 import { DESIGN_HEIGHT, DESIGN_WIDTH } from './display';
+import { WORLD_ASSETS, type WorldAsset } from './worldAssets';
 
 // All layout is expressed as ratios of the 9:16 design resolution so aspect
-// ratio dependence stays in display.ts. Positions are provisional placeholders.
+// ratio dependence stays in display.ts. World positions are provisional and
+// registered to the island art; they are a human play-review decision.
 const x = (ratio: number): number => DESIGN_WIDTH * ratio;
 const y = (ratio: number): number => DESIGN_HEIGHT * ratio;
 
@@ -10,92 +12,56 @@ export interface Point {
   readonly y: number;
 }
 
-export type AnimalKind = 'sheep' | 'deer';
-export type TierId = 'base' | 'terrace' | 'plateau';
-
-const poly = (pairs: ReadonlyArray<readonly [number, number]>): readonly Point[] =>
-  pairs.map(([px, py]) => ({ x: x(px), y: y(py) }));
-
 const BUTTON_COUNT = 4;
 const BUTTON_SIZE = x(0.2);
 const BUTTON_GAP = (DESIGN_WIDTH - BUTTON_COUNT * BUTTON_SIZE) / (BUTTON_COUNT + 1);
 
-// Fixed 2.5D miniature seen from a fixed camera. The island is stacked tiers
-// listed lowest elevation first (painter's order): each tier's `surface` is its
-// top face and `cliff` is how far its front face drops below the surface front
-// edge. Higher tiers therefore cover the back of lower ones, which gives the
-// height difference. Props and characters are depth-sorted by their ground y.
+// Island art pixel -> design pixel. Everything standing on the island is placed
+// in the island PNG's pixel space and converted here, so the art and its props
+// can never drift apart.
+const ISLAND = WORLD_ASSETS.island;
+const onIsland = (px: number, py: number): Point => ({
+  x: ISLAND.placement.x + (px - ISLAND.groundAnchor.x) * ISLAND.baseScale,
+  y: ISLAND.placement.y + (py - ISLAND.groundAnchor.y) * ISLAND.baseScale,
+});
+const assetGround = (asset: WorldAsset): Point => {
+  if (asset.placementSpace === 'design') return asset.placement;
+  return onIsland(asset.placement.x, asset.placement.y);
+};
+
+const islandRect = (left: number, top: number, right: number, bottom: number) => {
+  const a = onIsland(left, top);
+  const b = onIsland(right, bottom);
+  return { left: a.x, top: a.y, right: b.x, bottom: b.y };
+};
+
+// Fixed 2.5D miniature seen from a fixed camera. The baked island PNG is the
+// terrain, cave, rocks and its single landscape tree. Props and characters are
+// depth-sorted by their ground y.
 export const LAYOUT = {
-  terrain: [
-    // Lowest: the open living space at the front and the island's outer cliff.
-    {
-      id: 'base',
-      surface: poly([
-        [0.05, 0.55], [0.08, 0.48], [0.18, 0.43], [0.34, 0.405], [0.5, 0.4], [0.66, 0.405],
-        [0.82, 0.43], [0.92, 0.48], [0.95, 0.55], [0.94, 0.64], [0.88, 0.71], [0.74, 0.75],
-        [0.5, 0.762], [0.26, 0.75], [0.12, 0.71], [0.06, 0.64],
-      ]),
-      cliff: y(0.04),
-    },
-    // Middle: grass terrace for trees and animals, one step above the base.
-    {
-      id: 'terrace',
-      surface: poly([
-        [0.12, 0.5], [0.18, 0.44], [0.34, 0.415], [0.66, 0.415], [0.82, 0.44], [0.88, 0.5],
-        [0.84, 0.545], [0.7, 0.565], [0.5, 0.572], [0.3, 0.565], [0.16, 0.545],
-      ]),
-      cliff: y(0.03),
-    },
-    // Highest: rocky plateau at the back; the cave opens in its front face.
-    {
-      id: 'plateau',
-      surface: poly([
-        [0.27, 0.375], [0.36, 0.335], [0.5, 0.315], [0.64, 0.335], [0.73, 0.375], [0.7, 0.425],
-        [0.58, 0.445], [0.5, 0.45], [0.42, 0.445], [0.3, 0.425],
-      ]),
-      cliff: y(0.055),
-    },
-  ],
-  // Back: an ordinary cave in the plateau's cliff face, plus boulders on top.
-  cave: { x: x(0.5), baseY: y(0.5), width: x(0.17), height: y(0.052) },
-  boulders: [
-    { x: x(0.4), y: y(0.385), size: 1 },
-    { x: x(0.61), y: y(0.375), size: 0.8 },
-    { x: x(0.55), y: y(0.415), size: 0.6 },
-  ],
-  // Middle: nature and animals on the terrace, on both sides of the cave.
-  trees: [
-    { x: x(0.17), y: y(0.505), scale: 1 },
-    { x: x(0.82), y: y(0.51), scale: 1.05 },
-    { x: x(0.27), y: y(0.54), scale: 0.85 },
-    { x: x(0.74), y: y(0.545), scale: 0.9 },
-  ],
-  animals: [
-    { x: x(0.4), y: y(0.55), kind: 'sheep' },
-    { x: x(0.62), y: y(0.555), kind: 'deer' },
-  ] as ReadonlyArray<{ readonly x: number; readonly y: number; readonly kind: AnimalKind }>,
-  // Front: shelter, human, and the open living space kept free for growth.
-  shelter: { x: x(0.17), y: y(0.655), width: x(0.15), height: y(0.065) },
-  humanStart: { x: x(0.3), y: y(0.665) },
-  humanWarm: { x: x(0.6), y: y(0.665) },
+  // Island sprite origin (top centre) and its on-screen bounds.
+  island: {
+    ...assetGround(ISLAND),
+    left: ISLAND.placement.x - ISLAND.groundAnchor.x * ISLAND.baseScale,
+    right: ISLAND.placement.x + (ISLAND.width - ISLAND.groundAnchor.x) * ISLAND.baseScale,
+    top: ISLAND.placement.y,
+    bottom: ISLAND.placement.y + ISLAND.height * ISLAND.baseScale,
+  },
+  // Grass terrace on the right of the island, beside the baked tree.
+  animal: assetGround(WORLD_ASSETS.animal),
+  // Front: shelter, human, fire on the sand, with the open path kept free.
+  shelter: assetGround(WORLD_ASSETS.shelter),
+  humanStart: onIsland(330, 950),
+  humanWarm: onIsland(500, 950),
   // Dev-only review loop (?humanWalkPreview): a rectangle that walks right,
   // down, left, then up so each approved view can be checked on a phone screen.
-  humanWalkPreview: [
-    { x: x(0.35), y: y(0.62) },
-    { x: x(0.65), y: y(0.62) },
-    { x: x(0.65), y: y(0.72) },
-    { x: x(0.35), y: y(0.72) },
-  ] as readonly Point[],
-  fire: { x: x(0.7), y: y(0.67) },
-  // Foreground framing drawn in front of everything on the island.
-  foreground: [
-    { x: x(0.15), y: y(0.69), scale: 1 },
-    { x: x(0.87), y: y(0.685), scale: 0.85 },
-  ],
-  // Empty ground on purpose, so later growth has room to appear.
+  humanWalkPreview: [onIsland(330, 850), onIsland(500, 850), onIsland(500, 960), onIsland(330, 960)] as readonly Point[],
+  fire: assetGround(WORLD_ASSETS.fire),
+  // Empty ground on purpose, so later growth has room to appear: the central
+  // sand path and the beach in front of it.
   growthSpaces: [
-    { id: 'front-left', left: x(0.24), right: x(0.46), top: y(0.7), bottom: y(0.73) },
-    { id: 'front-right', left: x(0.56), right: x(0.8), top: y(0.7), bottom: y(0.73) },
+    { id: 'central', ...islandRect(350, 700, 520, 860) },
+    { id: 'front', ...islandRect(260, 1030, 460, 1100) },
   ],
   // Bottom: four-icon selection UI.
   ui: {

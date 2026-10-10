@@ -16,7 +16,7 @@ Follow `AGENTS.md`. Your role in this repository is Investigator / Implementer; 
 - Implement only the approved scope.
 - Add or update focused tests and run relevant regression checks.
 - Follow the game architecture guardrails in `AGENTS.md`, especially Stage/Event/Flag separation, data-driven handling of the 24 permutations, state authority independent of rendering, and future global playback-speed compatibility.
-- Avoid speculative frameworks and abstractions. The game stack is not yet selected; do not introduce npm, Phaser, TypeScript, a game engine, or stack-specific CI unless the Issue explicitly authorizes it.
+- Avoid speculative frameworks and abstractions. The selected stack is TypeScript + Phaser + Vite + Vitest; do not add dependencies, change the stack, or introduce another game engine or stack-specific CI unless the Issue explicitly authorizes it.
 - Do not commit, push, create a PR, merge, or declare final approval unless Codex or the human explicitly assigns that action.
 
 ## Security

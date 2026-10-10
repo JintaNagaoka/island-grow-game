@@ -7,6 +7,9 @@ import {
   computeFireVisual,
   computeHumanPose,
   computeWalkPreviewPose,
+  FIRE_ALPHA_DIP,
+  FIRE_MAX_ROTATION,
+  FIRE_MIN_ALPHA,
 } from './animation';
 import { humanAssetOrigin, selectHumanAsset, type HumanAnimationState } from './humanAssets';
 import { HUMAN_WALK_SEQUENCE, HUMAN_WALK_SPEED_PX_PER_MS } from './humanWalk';
@@ -251,15 +254,28 @@ describe('human pose', () => {
 });
 
 describe('living miniature motion', () => {
-  it('keeps trees and animals moving from the same logical clock', () => {
+  it('keeps the single animal moving from the logical clock, within a small range', () => {
     const game = new SliceGame();
     const before = computeEnvironmentMotion(game.snapshot());
     game.advance(1000);
     const after = computeEnvironmentMotion(game.snapshot());
-    expect(after.treeSways).not.toEqual(before.treeSways);
-    expect(after.animalOffsets).not.toEqual(before.animalOffsets);
-    expect(after.treeSways).toHaveLength(LAYOUT.trees.length + LAYOUT.foreground.length);
-    expect(after.animalOffsets).toHaveLength(LAYOUT.animals.length);
+    expect(after.animalOffset).not.toEqual(before.animalOffset);
+    for (let t = 0; t < 20_000; t += 250) {
+      game.advance(250);
+      const { x, y, turn } = computeEnvironmentMotion(game.snapshot()).animalOffset;
+      expect(Math.abs(x)).toBeLessThanOrEqual(5);
+      expect(Math.abs(y)).toBeLessThanOrEqual(1.5);
+      expect(Math.abs(turn)).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it('keeps moving after Turn 1 is complete', () => {
+    const game = startedGame();
+    game.advance(WAVE1 + WAVE2 + WAVE3 + 100);
+    expect(game.snapshot().phase).toBe('completed');
+    const before = computeEnvironmentMotion(game.snapshot());
+    game.advance(700);
+    expect(computeEnvironmentMotion(game.snapshot())).not.toEqual(before);
   });
 
   it('scales ambient motion uniformly with playback speed', () => {
@@ -305,5 +321,47 @@ describe('fire visual', () => {
       scales.add(computeFireVisual(game.snapshot()).scale);
     }
     expect(scales.size).toBeGreaterThan(10);
+  });
+
+  it('sways and breathes subtly from the logical clock after Turn 1 completes', () => {
+    const game = startedGame();
+    game.advance(WAVE1 + WAVE2 + WAVE3 + 100);
+    expect(game.snapshot().phase).toBe('completed');
+    const rotations = new Set<number>();
+    const alphas = new Set<number>();
+    for (let i = 0; i < 400; i += 1) {
+      game.advance(17);
+      const fire = computeFireVisual(game.snapshot());
+      expect(fire.visible).toBe(true);
+      expect(Math.abs(fire.rotation)).toBeLessThanOrEqual(FIRE_MAX_ROTATION);
+      expect(fire.alpha).toBeGreaterThanOrEqual(FIRE_MIN_ALPHA);
+      expect(fire.alpha).toBeLessThanOrEqual(1);
+      rotations.add(fire.rotation);
+      alphas.add(fire.alpha);
+    }
+    expect(rotations.size).toBeGreaterThan(100);
+    expect(alphas.size).toBeGreaterThan(100);
+    expect(FIRE_MAX_ROTATION).toBeLessThan(0.05);
+    expect(FIRE_ALPHA_DIP).toBeLessThanOrEqual(0.15);
+  });
+
+  it('keeps rotation and alpha neutral while hidden and bounded during the Wave 1 burst', () => {
+    const hidden = computeFireVisual(new SliceGame().snapshot());
+    expect([hidden.rotation, hidden.alpha]).toEqual([0, 0]);
+    const game = startedGame();
+    game.advance(WAVE1 * 0.3);
+    const fire = computeFireVisual(game.snapshot());
+    expect(fire.burst).not.toBeNull();
+    expect(Math.abs(fire.rotation)).toBeLessThanOrEqual(FIRE_MAX_ROTATION);
+    expect(fire.alpha).toBeGreaterThanOrEqual(FIRE_MIN_ALPHA);
+  });
+
+  it('is playback-speed equivalent for the whole fire visual', () => {
+    const slow = new SliceGame({ playbackSpeed: 0.5 });
+    const fast = new SliceGame({ playbackSpeed: 2 });
+    for (const game of [slow, fast]) game.selectElement('fire');
+    slow.advance(9000);
+    fast.advance(2250);
+    expect(computeFireVisual(slow.snapshot())).toEqual(computeFireVisual(fast.snapshot()));
   });
 });
