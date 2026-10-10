@@ -94,7 +94,7 @@ describe('world asset metadata', () => {
       groundAnchor: { x: 212, y: 296 },
       baseScale: 0.37,
       placementSpace: 'island',
-      placement: { x: 165, y: 940 },
+      placement: { x: 282, y: 960 },
       flipX: true,
     });
     expect(WORLD_ASSETS.animal).toMatchObject({
@@ -105,7 +105,7 @@ describe('world asset metadata', () => {
     expect(WORLD_ASSETS.fire).toMatchObject({
       groundAnchor: { x: 128, y: 246 },
       baseScale: 0.22,
-      placement: { x: 462, y: 950 },
+      placement: { x: 569, y: 960 },
     });
   });
 
@@ -254,6 +254,73 @@ function shelterPixelsInside(box: Box): boolean {
   return false;
 }
 
+// --- Island support: what ground lies under each opaque shelter pixel. ---
+// Classified from the island PNG itself: grass (including its dark outline) and
+// sand are supported ground; water, the transparent exterior and cliff faces are not.
+function groundAt(png: PngImage, x: number, y: number): 'grass' | 'sand' | 'none' {
+  if (x < 0 || y < 0 || x >= png.width || y >= png.height) return 'none';
+  const i = (y * png.width + x) * 4;
+  const [r, g, b, a] = [png.pixels[i], png.pixels[i + 1], png.pixels[i + 2], png.pixels[i + 3]];
+  if (a < 128) return 'none';
+  if (g >= r - 5 && g > b + 25) return 'grass';
+  if (r > 215 && g > 175 && b < 175 && r - b > 55) return 'sand';
+  return 'none';
+}
+
+const SUPPORT_MARGIN = 3; // island px of supported ground required around each pixel
+
+interface ShelterSupport {
+  readonly unsupported: number;
+  // Island px x of the leftmost opaque pixel among the lowest rows (the left
+  // plant/rock cluster) and the ground under it.
+  readonly leftContactGround: 'grass' | 'sand' | 'none';
+}
+
+// Maps every opaque, mirrored shelter pixel onto the island PNG for a shelter
+// whose ground anchor sits at island pixel (gx, gy).
+function shelterSupport(gx: number, gy: number): ShelterSupport {
+  const shelter = load(WORLD_ASSETS.shelter).png;
+  const island = load(WORLD_ASSETS.island).png;
+  const asset = WORLD_ASSETS.shelter;
+  const k = asset.baseScale / WORLD_ASSETS.island.baseScale; // island px per shelter px
+  const origin = groundOrigin(asset);
+  let unsupported = 0;
+  let leftmost = { ix: Infinity, iy: 0 };
+  for (let py = 0; py < shelter.height; py += 1) {
+    for (let px = 0; px < shelter.width; px += 1) {
+      if (alphaAt(shelter, px, py) < 128) continue;
+      const mirrored = shelter.width - 1 - px;
+      const ix = Math.round(gx + (mirrored - origin.x * shelter.width) * k);
+      const iy = Math.round(gy + (py - origin.y * shelter.height) * k);
+      const supported = [
+        [0, 0],
+        [SUPPORT_MARGIN, 0],
+        [-SUPPORT_MARGIN, 0],
+        [0, SUPPORT_MARGIN],
+        [0, -SUPPORT_MARGIN],
+      ].every(([dx, dy]) => groundAt(island, ix + dx, iy + dy) !== 'none');
+      if (!supported) unsupported += 1;
+      if (py >= shelter.height - 40 && ix < leftmost.ix) leftmost = { ix, iy };
+    }
+  }
+  return { unsupported, leftContactGround: groundAt(island, leftmost.ix, leftmost.iy) };
+}
+
+// Opaque right edge of the mirrored shelter on the design canvas.
+const SHELTER_OPAQUE_RIGHT = (() => {
+  const shelter = load(WORLD_ASSETS.shelter).png;
+  const asset = WORLD_ASSETS.shelter;
+  const origin = groundOrigin(asset);
+  let rightmost = -Infinity;
+  for (let py = 0; py < shelter.height; py += 1) {
+    for (let px = 0; px < shelter.width; px += 1) {
+      if (alphaAt(shelter, px, py) < 128) continue;
+      rightmost = Math.max(rightmost, shelter.width - 1 - px);
+    }
+  }
+  return LAYOUT.shelter.x + (rightmost - origin.x * shelter.width) * asset.baseScale;
+})();
+
 const SHELTER = footprint(WORLD_ASSETS.shelter, LAYOUT.shelter);
 const FIRE = footprint(WORLD_ASSETS.fire, LAYOUT.fire);
 const ANIMAL = footprint(WORLD_ASSETS.animal, LAYOUT.animal);
@@ -299,6 +366,26 @@ describe('world layout', () => {
     }
   });
 
+  it('supports every opaque shelter pixel on island ground, none over water, exterior or cliff', () => {
+    const { placement } = WORLD_ASSETS.shelter;
+    const support = shelterSupport(placement.x, placement.y);
+    expect(support.unsupported).toBe(0);
+    // The left plant/rock cluster stands on the lower-left grass terrace itself.
+    expect(support.leftContactGround).toBe('grass');
+  });
+
+  it('rejects the earlier protruding shelter placements with the same check', () => {
+    // (165, 940) and (190, 890) hung over the cliff / water; (200, 930) too.
+    for (const [x, y] of [
+      [165, 940],
+      [190, 890],
+      [175, 940],
+      [200, 930],
+    ]) {
+      expect(shelterSupport(x, y).unsupported).toBeGreaterThan(300);
+    }
+  });
+
   it('keeps the human walk from the shelter to the fire unobstructed', () => {
     for (const box of pathBoxes(LAYOUT.humanStart, LAYOUT.humanWarm)) {
       expect(shelterPixelsInside(box)).toBe(false);
@@ -322,10 +409,11 @@ describe('world layout', () => {
     expect(LAYOUT.humanWarm.x).toBeLessThan(LAYOUT.fire.x);
     expect(SHELTER.right).toBeLessThan(FIRE.left);
     expect(overlaps(SHELTER, FIRE)).toBe(false);
-    // Fire sits at island x 450-470, in front of the human group rather than far right.
-    const islandX = (LAYOUT.fire.x - LAYOUT.island.x) / WORLD_ASSETS.island.baseScale + WORLD_ASSETS.island.groundAnchor.x;
-    expect(islandX).toBeGreaterThanOrEqual(450);
-    expect(islandX).toBeLessThanOrEqual(470);
+    // Tight grouping: the shelter's opaque art ends just before the human, and the
+    // fire stands a short distance (about 50 design px) right of the finished human.
+    expect(LAYOUT.fire.x - LAYOUT.humanWarm.x).toBeGreaterThan(40);
+    expect(LAYOUT.fire.x - LAYOUT.humanWarm.x).toBeLessThan(70);
+    expect(LAYOUT.humanStart.x - SHELTER_OPAQUE_RIGHT).toBeLessThan(30);
   });
 
   it('leaves a visible walk that completes inside the approach Wave', () => {
@@ -353,7 +441,8 @@ describe('world layout', () => {
       expect(space.bottom).toBeLessThan(LAYOUT.ui.panelTop);
       expect(space.right - space.left).toBeGreaterThan(80);
       expect(space.bottom - space.top).toBeGreaterThan(40);
-      for (const box of [SHELTER, FIRE, ANIMAL_REACH, ...walk]) {
+      expect(shelterPixelsInside(space)).toBe(false);
+      for (const box of [FIRE, ANIMAL_REACH, ...walk]) {
         expect(overlaps(space, box)).toBe(false);
       }
     }

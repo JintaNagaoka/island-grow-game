@@ -51,16 +51,16 @@ export const LAYOUT = {
   animal: assetGround(WORLD_ASSETS.animal),
   // Front: shelter, human, fire on the sand, with the open path kept free.
   shelter: assetGround(WORLD_ASSETS.shelter),
-  humanStart: onIsland(305, 950),
-  humanWarm: onIsland(392, 950),
+  humanStart: onIsland(420, 960),
+  humanWarm: onIsland(495, 960),
   // Dev-only review loop (?humanWalkPreview): a rectangle that walks right,
   // down, left, then up so each approved view can be checked on a phone screen.
-  humanWalkPreview: [onIsland(320, 760), onIsland(520, 760), onIsland(520, 850), onIsland(320, 850)] as readonly Point[],
+  humanWalkPreview: [onIsland(390, 740), onIsland(540, 740), onIsland(540, 850), onIsland(390, 850)] as readonly Point[],
   fire: assetGround(WORLD_ASSETS.fire),
   // Empty ground on purpose, so later growth has room to appear: the central
   // sand path and the beach in front of it.
   growthSpaces: [
-    { id: 'central', ...islandRect(350, 700, 520, 860) },
+    { id: 'central', ...islandRect(400, 700, 540, 860) },
     { id: 'front', ...islandRect(260, 1030, 460, 1100) },
   ],
   // Bottom: four-icon selection UI.

@@ -59,7 +59,7 @@ export const WORLD_ASSETS = {
     groundAnchor: { x: 212, y: 296 },
     baseScale: 0.37,
     placementSpace: 'island',
-    placement: { x: 165, y: 940 },
+    placement: { x: 282, y: 960 },
     flipX: true,
   },
   // The one white fantasy creature, grazing on the right-hand grass terrace.
@@ -83,7 +83,7 @@ export const WORLD_ASSETS = {
     groundAnchor: { x: 128, y: 246 },
     baseScale: 0.22,
     placementSpace: 'island',
-    placement: { x: 462, y: 950 },
+    placement: { x: 569, y: 960 },
   },
 } as const satisfies Record<string, WorldAsset>;
 
