@@ -22,6 +22,16 @@ export interface WorldAsset {
   readonly baseScale: number;
   readonly placementSpace: PlacementSpace;
   readonly placement: Point;
+  // Render the PNG mirrored left-right. groundAnchor stays in the unflipped PNG's
+  // pixels; groundOrigin() converts it. The PNG itself is never edited.
+  readonly flipX?: boolean;
+}
+
+// Sprite origin (0..1) that puts the asset's ground anchor on its placement
+// point, taking flipX into account.
+export function groundOrigin(asset: WorldAsset): Point {
+  const x = asset.groundAnchor.x / asset.width;
+  return { x: asset.flipX ? 1 - x : x, y: asset.groundAnchor.y / asset.height };
 }
 
 export const WORLD_ASSETS = {
@@ -37,8 +47,10 @@ export const WORLD_ASSETS = {
     placementSpace: 'design',
     placement: { x: 360, y: 16 },
   },
-  // Provisional stage-1 shelter, beside the human's starting spot. Scale 0.37
-  // gives about 78x57 logical px at the 360x640 reference (target ~80x50).
+  // Provisional stage-1 shelter in the lower-left living area, level with the
+  // human and fire. The art faces left, so it is mirrored: roof to the left, open
+  // side toward the human and fire. Scale 0.37 gives about 78x57 logical px at
+  // the 360x640 reference (target ~80x50).
   shelter: {
     textureKey: 'world-shelter',
     filename: 'shelter-stage1.png',
@@ -47,7 +59,8 @@ export const WORLD_ASSETS = {
     groundAnchor: { x: 212, y: 296 },
     baseScale: 0.37,
     placementSpace: 'island',
-    placement: { x: 190, y: 890 },
+    placement: { x: 165, y: 940 },
+    flipX: true,
   },
   // The one white fantasy creature, grazing on the right-hand grass terrace.
   // The art faces left and is never mirrored.
@@ -70,7 +83,7 @@ export const WORLD_ASSETS = {
     groundAnchor: { x: 128, y: 246 },
     baseScale: 0.22,
     placementSpace: 'island',
-    placement: { x: 590, y: 940 },
+    placement: { x: 462, y: 950 },
   },
 } as const satisfies Record<string, WorldAsset>;
 

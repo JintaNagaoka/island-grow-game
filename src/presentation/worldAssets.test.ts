@@ -11,6 +11,7 @@ import {
   WORLD_ASSET_DIR,
   WORLD_ASSET_LIST,
   WORLD_WATER_COLOR,
+  groundOrigin,
   type WorldAsset,
 } from './worldAssets';
 
@@ -93,7 +94,8 @@ describe('world asset metadata', () => {
       groundAnchor: { x: 212, y: 296 },
       baseScale: 0.37,
       placementSpace: 'island',
-      placement: { x: 190, y: 890 },
+      placement: { x: 165, y: 940 },
+      flipX: true,
     });
     expect(WORLD_ASSETS.animal).toMatchObject({
       groundAnchor: { x: 290, y: 300 },
@@ -103,8 +105,17 @@ describe('world asset metadata', () => {
     expect(WORLD_ASSETS.fire).toMatchObject({
       groundAnchor: { x: 128, y: 246 },
       baseScale: 0.22,
-      placement: { x: 590, y: 940 },
+      placement: { x: 462, y: 950 },
     });
+  });
+
+  it('mirrors only the shelter and converts its anchor into a mirrored origin', () => {
+    expect(WORLD_ASSET_LIST.filter((asset) => asset.flipX === true)).toEqual([WORLD_ASSETS.shelter]);
+    const shelter = groundOrigin(WORLD_ASSETS.shelter);
+    expect(shelter.x).toBeCloseTo(1 - 212 / 423, 10);
+    expect(shelter.y).toBeCloseTo(296 / 306, 10);
+    const fire = groundOrigin(WORLD_ASSETS.fire);
+    expect(fire.x).toBeCloseTo(128 / 256, 10);
   });
 
   it('sizes the shelter to about 80x50 logical px at the 360x640 reference', () => {
@@ -207,7 +218,8 @@ interface Box {
 
 // Where a ground-anchored sprite lands on the design canvas.
 function footprint(asset: WorldAsset, ground: { x: number; y: number }): Box {
-  const left = ground.x - asset.groundAnchor.x * asset.baseScale;
+  const origin = groundOrigin(asset);
+  const left = ground.x - origin.x * asset.width * asset.baseScale;
   const top = ground.y - asset.groundAnchor.y * asset.baseScale;
   return {
     left,
@@ -223,6 +235,24 @@ const overlaps = (a: Box, b: Box): boolean =>
 // The human's drawn extent around a ground point: the 512px canvas at the
 // shared sprite scale is far larger than the figure, so use a generous box.
 const humanBox = (x: number, y: number): Box => ({ left: x - 16, right: x + 16, top: y - 56, bottom: y + 6 });
+
+// True when an opaque pixel of the (mirrored) shelter PNG lies inside `box`.
+function shelterPixelsInside(box: Box): boolean {
+  const { png } = load(WORLD_ASSETS.shelter);
+  const asset = WORLD_ASSETS.shelter;
+  const origin = groundOrigin(asset);
+  const left = LAYOUT.shelter.x - origin.x * asset.width * asset.baseScale;
+  const top = LAYOUT.shelter.y - origin.y * asset.height * asset.baseScale;
+  for (let py = 0; py < png.height; py += 1) {
+    for (let px = 0; px < png.width; px += 1) {
+      if (alphaAt(png, px, py) < 128) continue;
+      const screenX = left + (asset.flipX ? png.width - 1 - px : px) * asset.baseScale;
+      const screenY = top + py * asset.baseScale;
+      if (screenX > box.left && screenX < box.right && screenY > box.top && screenY < box.bottom) return true;
+    }
+  }
+  return false;
+}
 
 const SHELTER = footprint(WORLD_ASSETS.shelter, LAYOUT.shelter);
 const FIRE = footprint(WORLD_ASSETS.fire, LAYOUT.fire);
@@ -271,20 +301,45 @@ describe('world layout', () => {
 
   it('keeps the human walk from the shelter to the fire unobstructed', () => {
     for (const box of pathBoxes(LAYOUT.humanStart, LAYOUT.humanWarm)) {
-      expect(overlaps(box, SHELTER)).toBe(false);
+      expect(shelterPixelsInside(box)).toBe(false);
       expect(overlaps(box, FIRE)).toBe(false);
       expect(overlaps(box, ANIMAL_REACH)).toBe(false);
     }
-    // The human starts beside the shelter and stops short of the fire.
-    expect(LAYOUT.humanStart.x).toBeGreaterThan(SHELTER.right);
-    expect(LAYOUT.humanWarm.x).toBeLessThan(FIRE.left);
+    // The human starts immediately right of the shelter art and stops just left
+    // of the fire stones, on the same ground band.
+    expect(shelterPixelsInside(humanBox(LAYOUT.humanStart.x, LAYOUT.humanStart.y))).toBe(false);
+    expect(LAYOUT.humanStart.x - 16).toBeGreaterThan(SHELTER.left + (SHELTER.right - SHELTER.left) * 0.5);
+    expect(LAYOUT.humanWarm.x + 16).toBeLessThan(FIRE.left);
+    expect(FIRE.left - (LAYOUT.humanWarm.x + 16)).toBeLessThan(30);
+    expect(LAYOUT.humanWarm.y).toBe(LAYOUT.humanStart.y);
+    expect(Math.abs(LAYOUT.fire.y - LAYOUT.humanStart.y)).toBeLessThan(8);
+    expect(Math.abs(LAYOUT.shelter.y - LAYOUT.humanStart.y)).toBeLessThan(8);
+  });
+
+  it('reproduces the reference arrangement: shelter left, human, then fire to the right', () => {
+    expect(LAYOUT.shelter.x).toBeLessThan(LAYOUT.humanStart.x);
+    expect(LAYOUT.humanStart.x).toBeLessThan(LAYOUT.humanWarm.x);
+    expect(LAYOUT.humanWarm.x).toBeLessThan(LAYOUT.fire.x);
+    expect(SHELTER.right).toBeLessThan(FIRE.left);
+    expect(overlaps(SHELTER, FIRE)).toBe(false);
+    // Fire sits at island x 450-470, in front of the human group rather than far right.
+    const islandX = (LAYOUT.fire.x - LAYOUT.island.x) / WORLD_ASSETS.island.baseScale + WORLD_ASSETS.island.groundAnchor.x;
+    expect(islandX).toBeGreaterThanOrEqual(450);
+    expect(islandX).toBeLessThanOrEqual(470);
+  });
+
+  it('leaves a visible walk that completes inside the approach Wave', () => {
+    const distance = LAYOUT.humanWarm.x - LAYOUT.humanStart.x;
+    expect(distance).toBeGreaterThanOrEqual(50);
+    // Wave 2 walk window: 48% of 3200 ms at 0.144 design px/ms.
+    expect(distance / 0.144).toBeLessThan(3200 * 0.48);
   });
 
   it('keeps the dev walk-preview loop clear of the shelter, fire and animal', () => {
     const loop = LAYOUT.humanWalkPreview;
     loop.forEach((from, index) => {
       for (const box of pathBoxes(from, loop[(index + 1) % loop.length])) {
-        expect(overlaps(box, SHELTER)).toBe(false);
+        expect(shelterPixelsInside(box)).toBe(false);
         expect(overlaps(box, FIRE)).toBe(false);
         expect(overlaps(box, ANIMAL_REACH)).toBe(false);
       }

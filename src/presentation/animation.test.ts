@@ -22,6 +22,11 @@ const [WAVE1, WAVE2, WAVE3] = [
   WAVE_DURATIONS_MS.humanWarmsUp,
 ];
 
+// Logical time the human needs to walk from the start to the fire at the fixed
+// walk speed. Mid-walk samples below are taken as fractions of this, so they
+// stay mid-walk whatever the layout distance is.
+const WALK_MS = (LAYOUT.humanWarm.x - LAYOUT.humanStart.x) / HUMAN_WALK_SPEED_PX_PER_MS;
+
 function startedGame(waves?: readonly Wave[]): SliceGame {
   const game = new SliceGame(waves ? { waves } : {});
   game.selectElement('fire');
@@ -180,7 +185,7 @@ describe('human pose', () => {
       ...wave,
       durationMs: wave.durationMs * 2,
     }));
-    const walkElapsedMs = 750;
+    const walkElapsedMs = WALK_MS * 0.6;
     const at = (waves: readonly Wave[] | undefined, durationScale: number) => {
       const game = startedGame(waves);
       game.advance(WAVE1 * durationScale + WAVE2 * durationScale * WALK_START + walkElapsedMs);
@@ -199,7 +204,8 @@ describe('human pose', () => {
   });
 
   it('walks the same path at any render step size and any playback speed', () => {
-    const walkMs = WAVE1 + WAVE2 * 0.75;
+    // Rounded to 40 ms so every step size below lands exactly on the sample time.
+    const walkMs = Math.round((WAVE1 + WAVE2 * WALK_START + WALK_MS * 0.5) / 40) * 40;
     const poseAfter = (stepMs: number, playbackSpeed: number) => {
       const game = new SliceGame({ playbackSpeed });
       game.selectElement('fire');
@@ -246,8 +252,9 @@ describe('human pose', () => {
     const slow = new SliceGame({ playbackSpeed: 0.5 });
     const fast = new SliceGame({ playbackSpeed: 2 });
     for (const game of [slow, fast]) game.selectElement('fire');
-    slow.advance(7600);
-    fast.advance(1900);
+    const logicalMs = WAVE1 + WAVE2 * WALK_START + WALK_MS * 0.5;
+    slow.advance(logicalMs * 2);
+    fast.advance(logicalMs / 2);
     expect(computeHumanPose(slow.snapshot())).toEqual(computeHumanPose(fast.snapshot()));
     expect(computeHumanPose(slow.snapshot()).walk).not.toBeNull();
   });

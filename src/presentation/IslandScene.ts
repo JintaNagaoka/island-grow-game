@@ -29,6 +29,7 @@ import {
   WORLD_ASSET_DIR,
   WORLD_ASSET_LIST,
   WORLD_WATER_COLOR,
+  groundOrigin,
   type WorldAsset,
 } from './worldAssets';
 
@@ -337,9 +338,11 @@ export class IslandScene extends Phaser.Scene {
   // A sprite standing on its ground anchor: the origin is the anchor as a
   // fraction of the PNG, so position and scale act on the ground contact point.
   private addGroundSprite(asset: WorldAsset, x: number, y: number): Phaser.GameObjects.Image {
+    const origin = groundOrigin(asset);
     return this.add
       .image(x, y, asset.textureKey)
-      .setOrigin(asset.groundAnchor.x / asset.width, asset.groundAnchor.y / asset.height)
+      .setOrigin(origin.x, origin.y)
+      .setFlipX(asset.flipX === true)
       .setScale(asset.baseScale)
       .setDepth(y);
   }
