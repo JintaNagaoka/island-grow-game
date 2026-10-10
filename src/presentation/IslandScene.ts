@@ -126,7 +126,9 @@ export class IslandScene extends Phaser.Scene {
     this.animal.setDepth(ground.y);
     this.animalShadow.clear();
     this.animalShadow.fillStyle(0x183321, 0.24);
-    this.animalShadow.fillEllipse(ground.x + 2, ground.y + 1, 62, 11);
+    // Shadow follows the sprite's on-screen width (0.71x as wide, 0.126x as tall as the sprite is wide).
+    const animalWidth = WORLD_ASSETS.animal.width * WORLD_ASSETS.animal.baseScale;
+    this.animalShadow.fillEllipse(ground.x + 2, ground.y + 1, animalWidth * 0.71, animalWidth * 0.126);
     this.animalShadow.setDepth(ground.y - 0.5);
   }
 

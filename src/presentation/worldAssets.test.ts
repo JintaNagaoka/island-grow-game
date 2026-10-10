@@ -97,7 +97,7 @@ describe('world asset metadata', () => {
     });
     expect(WORLD_ASSETS.animal).toMatchObject({
       groundAnchor: { x: 290, y: 300 },
-      baseScale: 0.17,
+      baseScale: 0.15,
       placement: { x: 640, y: 690 },
     });
     expect(WORLD_ASSETS.fire).toMatchObject({
@@ -114,6 +114,14 @@ describe('world asset metadata', () => {
     expect((width * baseScale) / 2).toBeLessThan(88);
     expect((height * baseScale) / 2).toBeGreaterThan(48);
     expect((height * baseScale) / 2).toBeLessThan(62);
+  });
+
+  it('keeps the animal a little larger than the human figure but not dominant', () => {
+    const { width, height, baseScale } = WORLD_ASSETS.animal;
+    const humanFigureHeight = 52; // design px; HUMAN_SPRITE_SCALE 0.1 of the 512px canvas
+    expect(width * baseScale).toBeGreaterThan(humanFigureHeight);
+    expect(width * baseScale).toBeLessThan(humanFigureHeight * 2);
+    expect(height * baseScale).toBeLessThan(humanFigureHeight);
   });
 
   it('is a bright blue behind the transparent island margin', () => {

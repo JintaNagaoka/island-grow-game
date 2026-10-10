@@ -57,7 +57,7 @@ export const WORLD_ASSETS = {
     width: 512,
     height: 306,
     groundAnchor: { x: 290, y: 300 },
-    baseScale: 0.17,
+    baseScale: 0.15,
     placementSpace: 'island',
     placement: { x: 640, y: 690 },
   },
