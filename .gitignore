@@ -27,3 +27,4 @@ temp/
 # Dependencies and build output
 node_modules/
 dist/
+/asset-source/

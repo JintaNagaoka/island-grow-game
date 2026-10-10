@@ -23,7 +23,15 @@ import {
   selectHumanAsset,
 } from './humanAssets';
 import { HUMAN_WALK_ANIMATIONS, planHumanAnimation } from './humanWalk';
-import { LAYOUT, type AnimalKind, type TierId } from './layout';
+import { LAYOUT } from './layout';
+import {
+  WORLD_ASSETS,
+  WORLD_ASSET_DIR,
+  WORLD_ASSET_LIST,
+  WORLD_WATER_COLOR,
+  groundOrigin,
+  type WorldAsset,
+} from './worldAssets';
 
 export const ISLAND_SCENE_KEY = 'Island';
 
@@ -51,10 +59,14 @@ interface ElementButton {
 export class IslandScene extends Phaser.Scene {
   private slice = new SliceGame();
   private buttons: ElementButton[] = [];
-  private trees: Phaser.GameObjects.Container[] = [];
-  private animals: Phaser.GameObjects.Container[] = [];
+  // World art: the baked island (terrain, cave, rocks, one landscape tree) and
+  // three ground-anchored props. Rendering only; none of it owns game state.
+  private animal!: Phaser.GameObjects.Image;
+  private animalShadow!: Phaser.GameObjects.Graphics;
+  private fireSprite!: Phaser.GameObjects.Image;
+  private fireGlow!: Phaser.GameObjects.Graphics;
+  private fireSparks!: Phaser.GameObjects.Graphics;
   private shadow!: Phaser.GameObjects.Graphics;
-  private fireGraphics!: Phaser.GameObjects.Graphics;
   // The single human renderer: one Sprite for every pose and walk frame.
   private human!: Phaser.GameObjects.Sprite;
   private humanCold!: Phaser.GameObjects.Graphics;
@@ -64,6 +76,9 @@ export class IslandScene extends Phaser.Scene {
   }
 
   preload(): void {
+    for (const asset of WORLD_ASSET_LIST) {
+      this.load.image(asset.textureKey, `${WORLD_ASSET_DIR}${asset.filename}`);
+    }
     for (const asset of HUMAN_ASSET_LIST) {
       this.load.image(asset.textureKey, `/assets/human/${asset.filename}`);
     }
@@ -84,12 +99,9 @@ export class IslandScene extends Phaser.Scene {
     }
     this.slice = new SliceGame();
     this.buttons = [];
-    this.trees = [];
-    this.animals = [];
-    this.drawTerrainAndProps();
-    this.createLivingScenery();
+    this.cameras.main.setBackgroundColor(WORLD_WATER_COLOR);
+    this.createWorld();
     this.createHuman();
-    this.fireGraphics = this.add.graphics().setDepth(LAYOUT.fire.y + 1);
     this.createButtons();
     this.render(this.slice.snapshot());
   }
@@ -108,14 +120,17 @@ export class IslandScene extends Phaser.Scene {
   }
 
   private renderEnvironment(snapshot: SliceSnapshot): void {
-    const motion = computeEnvironmentMotion(snapshot);
-    this.trees.forEach((tree, index) => tree.setRotation(motion.treeSways[index] ?? 0));
-    this.animals.forEach((animal, index) => {
-      const home = LAYOUT.animals[index];
-      const offset = motion.animalOffsets[index];
-      animal.setPosition(home.x + offset.x, home.y + offset.y);
-      animal.setRotation(offset.turn * 0.025);
-    });
+    const { x, y, turn } = computeEnvironmentMotion(snapshot).animalOffset;
+    const ground = { x: LAYOUT.animal.x + x, y: LAYOUT.animal.y + y };
+    this.animal.setPosition(ground.x, ground.y);
+    this.animal.setRotation(turn * 0.025);
+    this.animal.setDepth(ground.y);
+    this.animalShadow.clear();
+    this.animalShadow.fillStyle(0x183321, 0.24);
+    // Shadow follows the sprite's on-screen width (0.71x as wide, 0.126x as tall as the sprite is wide).
+    const animalWidth = WORLD_ASSETS.animal.width * WORLD_ASSETS.animal.baseScale;
+    this.animalShadow.fillEllipse(ground.x + 2, ground.y + 1, animalWidth * 0.71, animalWidth * 0.126);
+    this.animalShadow.setDepth(ground.y - 0.5);
   }
 
   private renderHuman(snapshot: SliceSnapshot): void {
@@ -201,43 +216,39 @@ export class IslandScene extends Phaser.Scene {
     g.setDepth(pose.y + 3);
   }
 
+  // The fire is the PNG sprite, shown only once computeFireVisual() says so and
+  // scaled from its ground point; the glow, Wave-1 burst and rising sparks are
+  // small Graphics accents around it.
   private renderFire(snapshot: SliceSnapshot): void {
-    const g = this.fireGraphics;
-    g.clear();
+    const glow = this.fireGlow;
+    const sparks = this.fireSparks;
+    glow.clear();
+    sparks.clear();
     const fire = computeFireVisual(snapshot);
+    this.fireSprite.setVisible(fire.visible);
     if (!fire.visible) return;
     const { x, y } = LAYOUT.fire;
     const s = fire.scale;
+    const baseScale = WORLD_ASSETS.fire.baseScale;
+    this.fireSprite.setScale(baseScale * s).setRotation(fire.rotation).setAlpha(fire.alpha);
 
-    g.fillStyle(0xffbd55, 0.13);
-    g.fillEllipse(x, y + 4, 116 * s, 35 * s);
-    g.fillStyle(0x777b80, 1);
-    for (let i = 0; i < 7; i += 1) {
-      const angle = (i / 7) * Math.PI * 2;
-      g.fillCircle(x + Math.cos(angle) * 19, y + Math.sin(angle) * 6, 4.5);
-    }
-    g.fillStyle(0x704423, 1);
-    g.fillRoundedRect(x - 19, y - 2, 38, 6, 3);
-    g.fillStyle(0xe85620, 1);
-    g.fillTriangle(x - 13 * s, y, x + 13 * s, y, x, y - 43 * s);
-    g.fillEllipse(x, y - 6 * s, 27 * s, 18 * s);
-    g.fillStyle(0xffb43c, 1);
-    g.fillTriangle(x - 7 * s, y - 1, x + 7 * s, y - 1, x + 2 * s, y - 28 * s);
+    glow.fillStyle(0xffbd55, 0.16);
+    glow.fillEllipse(x, y + 2, 116 * s, 35 * s);
 
     if (fire.burst !== null && fire.burst < 0.8) {
       const t = fire.burst / 0.8;
       const radius = (1 - (1 - t) ** 3) * 48;
-      g.fillStyle(0xffd35c, 1 - t);
+      sparks.fillStyle(0xffd35c, 1 - t);
       for (let i = 0; i < 8; i += 1) {
         const angle = (i / 8) * Math.PI * 2;
-        g.fillCircle(x + Math.cos(angle) * radius, y - 16 + Math.sin(angle) * radius * 0.55, 3);
+        sparks.fillCircle(x + Math.cos(angle) * radius, y - 20 + Math.sin(angle) * radius * 0.55, 3);
       }
     }
 
     for (let i = 0; i < 3; i += 1) {
       const t = (fire.seconds * 0.55 + i / 3) % 1;
-      g.fillStyle(0xffc860, (1 - t) * 0.85);
-      g.fillCircle(x + Math.sin(fire.seconds * 3 + i * 2.1) * 7 * s, y - 28 * s - t * 38, 2);
+      sparks.fillStyle(0xffc860, (1 - t) * 0.85);
+      sparks.fillCircle(x + Math.sin(fire.seconds * 3 + i * 2.1) * 7 * s, y - 40 * s - t * 38, 2);
     }
   }
 
@@ -324,120 +335,33 @@ export class IslandScene extends Phaser.Scene {
     this.humanCold = this.add.graphics();
   }
 
-  private drawTerrainAndProps(): void {
-    const g = this.add.graphics();
-    g.fillStyle(0x397b99, 1);
-    g.fillRect(0, 0, DESIGN_WIDTH, DESIGN_HEIGHT);
-    g.fillStyle(0x4a91aa, 0.7);
-    g.fillEllipse(DESIGN_WIDTH / 2, DESIGN_HEIGHT * 0.61, DESIGN_WIDTH * 1.03, DESIGN_HEIGHT * 0.39);
-
-    const colors: Record<TierId, { cliff: number; top: number; edge: number }> = {
-      base: { cliff: 0x765039, top: 0x72a958, edge: 0x91c56c },
-      terrace: { cliff: 0x806044, top: 0x7fb762, edge: 0x9bcb78 },
-      plateau: { cliff: 0x676b69, top: 0x858b86, edge: 0xa0a6a0 },
-    };
-    for (const tier of LAYOUT.terrain) {
-      const palette = colors[tier.id];
-      const surface = tier.surface.map((point) => new Phaser.Math.Vector2(point.x, point.y));
-      const lower = tier.surface.map(
-        (point) => new Phaser.Math.Vector2(point.x, point.y + tier.cliff),
-      );
-      g.fillStyle(palette.cliff, 1);
-      g.fillPoints(lower, true);
-      g.fillStyle(palette.top, 1);
-      g.fillPoints(surface, true);
-      g.lineStyle(3, palette.edge, 0.7);
-      g.strokePoints(surface, true);
-    }
-
-    const caveY = LAYOUT.cave.baseY - LAYOUT.cave.height * 0.38;
-    g.fillStyle(0x303432, 1);
-    g.fillEllipse(LAYOUT.cave.x, caveY, LAYOUT.cave.width, LAYOUT.cave.height);
-    g.fillStyle(0x1f2423, 1);
-    g.fillEllipse(LAYOUT.cave.x, caveY + 5, LAYOUT.cave.width * 0.72, LAYOUT.cave.height * 0.72);
-
-    for (const rock of LAYOUT.boulders) {
-      g.fillStyle(0x6c716d, 1);
-      g.fillTriangle(
-        rock.x - 19 * rock.size,
-        rock.y,
-        rock.x + 19 * rock.size,
-        rock.y,
-        rock.x + 3 * rock.size,
-        rock.y - 27 * rock.size,
-      );
-      g.fillStyle(0x999f99, 0.65);
-      g.fillTriangle(
-        rock.x - 8 * rock.size,
-        rock.y - 4,
-        rock.x + 3 * rock.size,
-        rock.y - 27 * rock.size,
-        rock.x + 12 * rock.size,
-        rock.y - 2,
-      );
-    }
-
-    const shelter = LAYOUT.shelter;
-    g.fillStyle(0x5a3d22, 1);
-    g.fillRoundedRect(shelter.x - shelter.width / 2, shelter.y - shelter.height, 7, shelter.height, 3);
-    g.fillRoundedRect(shelter.x + shelter.width / 2 - 7, shelter.y - shelter.height * 0.72, 7, shelter.height * 0.72, 3);
-    g.fillStyle(0xb08a59, 1);
-    g.fillTriangle(
-      shelter.x - shelter.width / 2 - 9,
-      shelter.y - shelter.height + 2,
-      shelter.x + shelter.width / 2 + 9,
-      shelter.y - shelter.height * 0.72 + 2,
-      shelter.x - shelter.width / 2 - 9,
-      shelter.y - shelter.height * 0.7,
-    );
-    g.fillStyle(0x3e6b3b, 0.35);
-    for (const space of LAYOUT.growthSpaces) {
-      g.fillRoundedRect(space.left, space.top, space.right - space.left, space.bottom - space.top, 12);
-    }
+  // A sprite standing on its ground anchor: the origin is the anchor as a
+  // fraction of the PNG, so position and scale act on the ground contact point.
+  private addGroundSprite(asset: WorldAsset, x: number, y: number): Phaser.GameObjects.Image {
+    const origin = groundOrigin(asset);
+    return this.add
+      .image(x, y, asset.textureKey)
+      .setOrigin(origin.x, origin.y)
+      .setFlipX(asset.flipX === true)
+      .setScale(asset.baseScale)
+      .setDepth(y);
   }
 
-  private createLivingScenery(): void {
-    [...LAYOUT.trees, ...LAYOUT.foreground].forEach((tree) => {
-      this.trees.push(this.createTree(tree.x, tree.y, tree.scale));
-    });
-    LAYOUT.animals.forEach((animal) => {
-      this.animals.push(this.createAnimal(animal.x, animal.y, animal.kind));
-    });
-  }
-
-  private createTree(x: number, y: number, scale: number): Phaser.GameObjects.Container {
-    const shadow = this.add.graphics();
-    shadow.fillStyle(0x26472f, 0.28);
-    shadow.fillEllipse(5, 1, 42, 11);
-    const shape = this.add.graphics();
-    shape.fillStyle(0x65472c, 1);
-    shape.fillRoundedRect(-5, -38, 10, 39, 4);
-    shape.fillStyle(0x2f7541, 1);
-    shape.fillCircle(0, -52, 26);
-    shape.fillStyle(0x489255, 1);
-    shape.fillCircle(-10, -61, 15);
-    shape.fillCircle(13, -55, 13);
-    return this.add.container(x, y, [shadow, shape]).setScale(scale).setDepth(y);
-  }
-
-  private createAnimal(x: number, y: number, kind: AnimalKind): Phaser.GameObjects.Container {
-    const g = this.add.graphics();
-    g.fillStyle(0x24402a, 0.22);
-    g.fillEllipse(0, 2, 34, 8);
-    if (kind === 'sheep') {
-      g.fillStyle(0xf0eee3, 1);
-      g.fillCircle(-7, -15, 11);
-      g.fillCircle(5, -15, 12);
-      g.fillStyle(0x55504a, 1);
-      g.fillCircle(15, -17, 6);
-    } else {
-      g.fillStyle(0xb77e4e, 1);
-      g.fillEllipse(0, -15, 30, 15);
-      g.fillCircle(15, -25, 6);
-    }
-    g.fillStyle(kind === 'sheep' ? 0x55504a : 0x805532, 1);
-    g.fillRoundedRect(-9, -8, 3, 11, 1);
-    g.fillRoundedRect(6, -8, 3, 11, 1);
-    return this.add.container(x, y, [g]).setDepth(y);
+  private createWorld(): void {
+    const island = WORLD_ASSETS.island;
+    // The island is the ground: always behind every depth-sorted prop.
+    this.add
+      .image(LAYOUT.island.x, LAYOUT.island.y, island.textureKey)
+      .setOrigin(island.groundAnchor.x / island.width, island.groundAnchor.y / island.height)
+      .setScale(island.baseScale)
+      .setDepth(-1000);
+    this.addGroundSprite(WORLD_ASSETS.shelter, LAYOUT.shelter.x, LAYOUT.shelter.y);
+    this.animalShadow = this.add.graphics();
+    this.animal = this.addGroundSprite(WORLD_ASSETS.animal, LAYOUT.animal.x, LAYOUT.animal.y);
+    this.fireGlow = this.add.graphics().setDepth(LAYOUT.fire.y - 0.5);
+    this.fireSprite = this.addGroundSprite(WORLD_ASSETS.fire, LAYOUT.fire.x, LAYOUT.fire.y)
+      .setDepth(LAYOUT.fire.y + 1)
+      .setVisible(false);
+    this.fireSparks = this.add.graphics().setDepth(LAYOUT.fire.y + 1.5);
   }
 }

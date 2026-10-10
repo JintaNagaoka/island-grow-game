@@ -2,8 +2,8 @@
 
 ## Current scope
 
-- This repository is in initial setup. The game technology stack has not been selected.
-- Do not introduce npm, Phaser, TypeScript, a game framework, or stack-specific CI without an approved Issue and a human decision.
+- The selected stack is TypeScript + Phaser + Vite + Vitest, with npm and a committed lockfile.
+- Do not add dependencies, change this stack, or introduce a different game framework or stack-specific CI without an approved Issue and a human decision.
 - Keep the AI workflow lightweight. Do not build a generic game engine or speculative infrastructure.
 
 ## Source of Truth
