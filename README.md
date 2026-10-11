@@ -35,12 +35,12 @@ nvm を使う場合は、リポジトリのルートで `nvm install` と `nvm u
 
 ### Turn 2（🌱）のプレイ確認
 
-Turn 1 が完了すると 🌱 だけが選べるようになります（Turn 1 の完了前、再生中、Turn 2 の完了後は選べません）。🌱 をタップすると入力がロックされ、約 9.3 秒（97 BPM の 15 拍）で次の Wave が一度だけ進みます。
+Turn 1 が完了すると 🌱 だけが選べるようになります（Turn 1 の完了前、再生中、Turn 2 の完了後は選べません）。🌱 をタップすると入力がロックされ、約 11.0 秒（97 BPM の 13 拍 + 農作業の 3 秒）で次の Wave が一度だけ進みます。
 
 1. `human-walks-to-plot`: 小人が火のそばから左中段の草地の畑予定地へ歩く（承認済み4方向歩行。雨よけの右脚と火の間のすき間を通って上へ、雨よけの屋根と畑の間の空き地を左へ進み、畑の左下から着く）
-2. `sprout-plot-appears`: 複合農作業画像の中の「芽の一区画」がポップインする（`plantStage` が 1 になる）
-3. `human-waters-plot`: `farm_water`（既存の承認済み idle ↔ `human_farm_water1`、300 ms/フレーム）
-4. `human-harvests-plot`: `farm_harvest`（`human_farm_harvest1` ↔ `human_farm_harvest2`、300 ms/フレーム）
+2. `human-waters-plot`: 小人が畑に着いたら、`human_farm_water1` を**ちょうど 1.5 秒（論理時間）連続して**表示する（畑が小さくポップインする。`plantStage` は 0 のまま）
+3. `human-harvests-plot`: `human_farm_harvest2` をちょうど 1.5 秒連続して表示する
+4. `farm-expands`: `human_farm_harvest1` に落ち着き、単独の畑タイル `farm_plot_single.png` が 1 枚ずつ育つように増えて、リファレンスに近い大きさの畑になる（この Wave の完了時に `plantStage` が 1 になり（1 回だけ。2 は使いません）、拡張した畑は以後ずっと残る）
 5. `shelter-levels-up`: 雨よけが膨らみながら薄れ、同じ接地点から小屋が現れる（淡い光と小さなきらめき。新規画像は生成していません。`shelterStage` が 2 になる）
 6. `cooking-starts`: 既存の焚き火が膨らみながら薄れ、同じ接地点で調理の火（`cook_pot_steam1` ↔ `steam2`）へレベルアップする（鍋を隣に置くのではなく、焚き火の置き換え。完了時に `fireStage` が 1 → 2 になり、以後は調理の火だけが表示される）
 7. `animal-eats`: 既存の動物 1 頭が、同じ接地点で餌を食べる姿（`animal_eat1` ↔ `eat2`）へレベルアップする（動物は 1 頭のまま。完了時に `animalStage` が 1 → 2 になる）
@@ -117,10 +117,9 @@ sips -s format png asset-source/initial-turn1/campfire_frame_b_1254.jpg --out as
 | 同上 | `cook_pot_steam1.png` | `cook-steam-1` | `d0c0a50e…` |
 | 同上 | `cook_pot_steam2.png` | `cook-steam-2` | `7dfa98bf…` |
 
-アニメーション契約（`src/presentation/turn2Assets.ts` の `TURN2_ANIMATIONS`。すべて 300 ms/フレーム、repeat）:
+農作業の順序（`FARM_WORK_SEQUENCE`。論理クロックと Wave だけで決まり、1 回だけ実行）: `farm-water-1` を 1500 ms → `farm-harvest-2` を 1500 ms → `farm-harvest-1` に落ち着いて単独タイルを追加。各ポーズは交互再生せず 1 枚を連続表示します（旧仕様の 300 ms 交互再生は置き換えました）。到着後の立ち絵は既存の承認済み idle（texture key `idle`）で、水やり姿勢の小人の足元（`human_farm_water1.png` の (182, 404)）に立たせ、water1 に切り替わっても小人が動かないようにしています。ZIP の `animation.json` にある外部プレースホルダー名（`EXTERNAL_APPROVED_HUMAN_IDLE.png`）はランタイムで読み込みません。
 
-- `farm_harvest`: `farm-harvest-1` → `farm-harvest-2`
-- `farm_water`: 既存の承認済み idle（texture key `idle`、`/assets/human/idle.png`）→ `farm-water-1`。ZIP の `animation.json` にある外部プレースホルダー名（`EXTERNAL_APPROVED_HUMAN_IDLE.png`）はランタイムで読み込みません。idle は水やり姿勢の小人の足元（`human_farm_water1.png` の (182, 404)）に立たせ、2 枚を切り替えても小人が動かないようにしています。
+ループするアニメーション（`TURN2_ANIMATIONS`。300 ms/フレーム、repeat）:
 - `animal_eat`: `animal-eat-1` → `animal-eat-2`
 - `cook_steam`: `cook-steam-1` → `cook-steam-2`
 
@@ -128,13 +127,20 @@ sips -s format png asset-source/initial-turn1/campfire_frame_b_1254.jpg --out as
 
 | texture key | ground anchor (px) | baseScale | 配置（島画像のピクセル座標） |
 | --- | --- | --- | --- |
-| `farm-harvest-1` / `-2` | (289, 479) / (309, 479) | 0.22 | (330, 745) |
-| `farm-water-1` | (280, 479) | 0.22 | (330, 745) |
+| `farm-harvest-1` / `-2` | (289, 479) / (309, 479) | 0.22 | (225, 724) |
+| `farm-water-1` | (280, 479) | 0.22 | (225, 724) |
+| `farm-plot-single` | (256, 284) | 0.22 | 複合画像の畑を囲む等角格子（下記） |
 | `cook-steam-1` / `-2` | (254, 479) / (278, 479) | 0.22 | (432, 971)（焚き火の既存の接地点。焚き火を置き換える） |
 | `animal-eat-1` / `-2` | (239, 450) / (311, 450) | 0.27 | (640, 690)（動物の既存の接地点） |
 | `world-hut` | (256, 428) | 0.3 | (282, 960)（雨よけの既存の接地点） |
 
 農作業 3 枚のスケールは 0.22 です。この PNG の小人は 512px キャンバス上で承認済みの idle / 歩行の小人よりも小さく描かれており（頭の幅が約 97 px に対し約 200〜220 px）、0.1 のままだと画面上で約半分の大きさになります。0.22 で頭が約 22 デザイン px となり、承認済みの小人（`HUMAN_SPRITE_SCALE` 0.1。変更していません）と同じ見かけになります（頭の幅を輪郭の弦から推定するテストで 10% 以内を確認）。畑そのものは複合画像の一部なので、リファレンスほど大きくは描けません。
+
+### 単独の畑タイル（`public/assets/world/turn2/farm_plot_single.png`）
+
+承認済みの `farm_plot_single.png`（SHA-256 `d1dedfc3ee102ba9e2b0c5b1018b62d45e9e0848417a4246b07581e1c89c138f`、512x512、8-bit RGBA）を、編集・再描画なしでバイト単位のまま追加しています（ランタイムのファイルが正本。テストが SHA-256 を照合します）。接地点は他のフレームと同じ規則（可視範囲の水平中心と下端）で (256, 284) です。
+
+タイルは複合画像の畑（2x2 マス）と同じ 0.22 スケールで、等角格子に並べます（`FARM_GRID`: 下右方向 6 x 上右方向 7 マス。複合画像が占める最初の 2x2 マスを除く 38 マスに 1 枚ずつ。隣のマスまでは `FARM_TILE_STEP_PX` = (43, 21.5) px）。位置は `layout.ts` の `farmPlotTiles`（複合画像の畑の中心から計算）で、全体の幅・高さがリファレンスの畑（約 140x90 デザイン px）に近くなります。右端は中央の将来用スペースの手前に収め、雨よけ・小屋の屋根との間に歩ける空きを残しています。
 
 ### Visual Reference（Turn 2 完了状態の参照画像）
 
@@ -155,7 +161,7 @@ sips -s format png asset-source/initial-turn1/campfire_frame_b_1254.jpg --out as
 
 - `src/main.ts`: Phaser の起動設定
 - `src/game/`: Phaser に依存しない純粋な TypeScript の WorldState と Game Logic。
-  - `worldState.ts`: `WorldState`（`plantStage`・`shelterStage`・`animalStage`、`fireStage` の 2 を含む）と初期状態、意味判定 `hasSproutPlot` / `hasUpgradedHut` / `hasCookingFire` / `hasCaredForAnimal`
+  - `worldState.ts`: `WorldState`（`plantStage`・`shelterStage`・`animalStage`、`fireStage` の 2 を含む）と初期状態、意味判定 `hasSproutPlot`（Turn 2 の芽の畑。拡張した畑を含む）/ `hasUpgradedHut` / `hasCookingFire` / `hasCaredForAnimal`
   - `waves.ts`: Wave の定義（Turn 1 の `FIRE_WARMING_WAVES`、Turn 2 の `PLANT_LIFE_WAVES`。順序と、各 Wave 完了時の WorldState 変更）
   - `timing.ts`: 再生時間と再生速度の唯一の境界。Wave の長さは再生速度 1x の論理ミリ秒で、将来の一括再生速度変更はここを通ります。
   - `sliceGame.ts`: 入力ガード（🌱 は Turn 1 完了後に一度だけ）、Wave 再生中の入力ロック、論理クロックによる Wave の順次再生、選択可能な要素 `selectableElements`

@@ -13,10 +13,15 @@ import {
   COOK_STEAM_FRAMES,
   FARM_ASSET_DIR,
   FARM_BASE_SCALE,
+  FARM_COMPOSITE_PLOT_CENTER_PX,
+  FARM_GRID,
   FARM_HARVEST_FRAMES,
+  FARM_PLOT_TILE,
+  FARM_TILE_STEP_PX,
+  FARM_TILE_TOP_CENTER_ABOVE_ANCHOR_PX,
   FARM_WATER_FRAME,
   FARM_WATER_HUMAN_FEET,
-  FARM_WATER_IDLE_TEXTURE_KEY,
+  FARM_WORK_SEQUENCE,
   HUT_ASSET,
   TURN2_ANIMATIONS,
   TURN2_ASSET_LIST,
@@ -42,6 +47,8 @@ const ZIP_PNG_SHA256: Record<string, string> = {
   'cook_pot_steam1.png': 'd0c0a50e1898e071c9b5f0123220e15408eacf145865235e550ad8603d174117',
   'cook_pot_steam2.png': '7dfa98bf87296478352b787e320824bb504aaf54bbc02f95f910eafe3be0bc3a',
 };
+// The approved standalone plot component (SHA-256 d1dedfc3…138f): added unedited.
+const PLOT_TILE_SHA256 = 'd1dedfc3ee102ba9e2b0c5b1018b62d45e9e0848417a4246b07581e1c89c138f';
 // The approved hut JPEG (SHA-256 74bac054…6397), kept unchanged as the source of
 // truth, and its lossless PNG decode (macOS `sips -s format png`) the script reads.
 const HUT_JPEG_SHA256 = '74bac0548d21c4d4cf35881cfe5419f8874ea9632082b390659b397031636397';
@@ -97,7 +104,14 @@ const ZIP_FRAMES: readonly Turn2Frame[] = [
 describe('Turn 2 supplied animation PNGs', () => {
   it('registers exactly the seven ZIP PNGs plus the derived hut, with unique texture keys', () => {
     expect(ZIP_FRAMES.map((frame) => frame.filename).sort()).toEqual(Object.keys(ZIP_PNG_SHA256).sort());
-    expect(TURN2_ASSET_LIST).toEqual([...ZIP_FRAMES, HUT_ASSET]);
+    expect(TURN2_ASSET_LIST).toEqual([
+      ...FARM_HARVEST_FRAMES,
+      FARM_WATER_FRAME,
+      FARM_PLOT_TILE,
+      ...ANIMAL_EAT_FRAMES,
+      ...COOK_STEAM_FRAMES,
+      HUT_ASSET,
+    ]);
     const keys = [
       ...TURN2_ASSET_LIST.map((asset) => asset.textureKey),
       ...WORLD_ASSET_LIST.map((asset) => asset.textureKey),
@@ -115,6 +129,7 @@ describe('Turn 2 supplied animation PNGs', () => {
       'cook-steam-2',
     ]);
     expect(HUT_ASSET.textureKey).toBe('world-hut');
+    expect(FARM_PLOT_TILE.textureKey).toBe('farm-plot-single');
   });
 
   it.each(ZIP_FRAMES)('$filename: byte-identical to the ZIP, 512x512 8-bit RGBA with transparency', (frame) => {
@@ -136,7 +151,7 @@ describe('Turn 2 supplied animation PNGs', () => {
     for (const frame of [...FARM_HARVEST_FRAMES, FARM_WATER_FRAME]) expect(frame.dir).toBe(FARM_ASSET_DIR);
   });
 
-  it.each(ZIP_FRAMES)('$textureKey: ground anchor is the centre and bottom of the grounded art', (frame) => {
+  it.each([...ZIP_FRAMES, FARM_PLOT_TILE])('$textureKey: ground anchor is the centre and bottom of the grounded art', (frame) => {
     const bounds = mainBounds(readPng(fileBytes(frame)));
     expect(frame.groundAnchor.y).toBe(bounds.bottom);
     expect(Math.abs(frame.groundAnchor.x - (bounds.left + bounds.right) / 2)).toBeLessThanOrEqual(0.5);
@@ -148,7 +163,7 @@ describe('Turn 2 supplied animation PNGs', () => {
     expect(ANIMAL_EAT_FRAMES.map((f) => f.groundAnchor)).toEqual([{ x: 239, y: 450 }, { x: 311, y: 450 }]);
     expect(COOK_STEAM_FRAMES.map((f) => f.groundAnchor)).toEqual([{ x: 254, y: 479 }, { x: 278, y: 479 }]);
     for (const frame of [...FARM_HARVEST_FRAMES, FARM_WATER_FRAME]) {
-      expect(frame).toMatchObject({ baseScale: 0.22, placementSpace: 'island', placement: { x: 330, y: 745 } });
+      expect(frame).toMatchObject({ baseScale: 0.22, placementSpace: 'island', placement: { x: 225, y: 724 } });
       expect(frame.baseScale).toBe(FARM_BASE_SCALE);
     }
     // The cooking fire is the campfire levelled up: the campfire's own ground point.
@@ -192,28 +207,67 @@ describe('Turn 2 supplied animation PNGs', () => {
   });
 });
 
+describe('Standalone farm plot tile (farm_plot_single.png)', () => {
+  const bytes = fileBytes(FARM_PLOT_TILE);
+  const png = readPng(bytes);
+
+  it('is the approved PNG, byte for byte: 512x512 8-bit RGBA with a transparent background', () => {
+    expect(sha256(bytes)).toBe(PLOT_TILE_SHA256);
+    expect([png.bitDepth, png.colorType]).toEqual([8, 6]);
+    expect([png.width, png.height]).toEqual([512, 512]);
+    expect(png.minAlpha).toBe(0);
+    expect(png.maxAlpha).toBe(255);
+    for (const [x, y] of [[0, 0], [511, 0], [0, 511], [511, 511]]) expect(alphaAt(png, x, y)).toBe(0);
+    expect(FARM_PLOT_TILE.dir).toBe(TURN2_WORLD_ASSET_DIR);
+    expect(FARM_PLOT_TILE.filename).toBe('farm_plot_single.png');
+  });
+
+  it('is registered with a stable ground anchor: bottom centre of its art, like every other frame', () => {
+    expect(FARM_PLOT_TILE.groundAnchor).toEqual({ x: 256, y: 284 });
+    const bounds = mainBounds(png);
+    expect(bounds.bottom).toBe(FARM_PLOT_TILE.groundAnchor.y);
+    expect(Math.abs((bounds.left + bounds.right) / 2 - FARM_PLOT_TILE.groundAnchor.x)).toBeLessThanOrEqual(0.5);
+    // Same scale as the composite farm frames: one tile is one cell of their own plot.
+    expect(FARM_PLOT_TILE.baseScale).toBe(FARM_BASE_SCALE);
+    expect(FARM_PLOT_TILE.textureKey).toBe('farm-plot-single');
+  });
+
+  it('is never edited by the runtime: the Scene only scales and positions it', () => {
+    const scene = readFileSync(new URL('src/presentation/IslandScene.ts', ROOT), 'utf8');
+    expect(scene).toContain('FARM_PLOT_TILE');
+    expect(scene).not.toMatch(/farm_plot_single|\.jpg/);
+  });
+});
+
 describe('Turn 2 animation contract', () => {
-  it('declares the four animations: frame order, 300 ms per frame, repeat', () => {
+  it('declares the looping animations: animal eating and the cooking fire, 300 ms per frame, repeat', () => {
     expect(TURN2_FRAME_DURATION_MS).toBe(300);
     expect(TURN2_ANIMATIONS).toEqual([
-      { id: 'farm_harvest', frameTextureKeys: ['farm-harvest-1', 'farm-harvest-2'], frameDurationMs: 300, repeat: true },
-      { id: 'farm_water', frameTextureKeys: ['idle', 'farm-water-1'], frameDurationMs: 300, repeat: true },
       { id: 'animal_eat', frameTextureKeys: ['animal-eat-1', 'animal-eat-2'], frameDurationMs: 300, repeat: true },
       { id: 'cook_steam', frameTextureKeys: ['cook-steam-1', 'cook-steam-2'], frameDurationMs: 300, repeat: true },
     ]);
   });
 
-  it('plays harvest as harvest1 -> harvest2 and eating as eat1 -> eat2 (the ZIP sequence order)', () => {
+  it('declares the farm-work sequence: water1 1500 ms, harvest2 1500 ms, then settle on harvest1', () => {
+    expect(FARM_WORK_SEQUENCE).toEqual([
+      { id: 'water', textureKey: 'farm-water-1', durationMs: 1500 },
+      { id: 'harvest', textureKey: 'farm-harvest-2', durationMs: 1500 },
+      { id: 'settle', textureKey: 'farm-harvest-1', durationMs: null },
+    ]);
+    // The sequence is the Waves: the same durations, in the same order, before the expansion Wave.
+    const ids = PLANT_LIFE_WAVES.map((wave) => wave.id);
+    expect(ids.slice(1, 4)).toEqual(['human-waters-plot', 'human-harvests-plot', 'farm-expands']);
+    expect(PLANT_LIFE_WAVES[1].durationMs).toBe(FARM_WORK_SEQUENCE[0].durationMs);
+    expect(PLANT_LIFE_WAVES[2].durationMs).toBe(FARM_WORK_SEQUENCE[1].durationMs);
+  });
+
+  it('plays eating as eat1 -> eat2 and the cooking fire as steam1 -> steam2 (the ZIP sequence order)', () => {
     expect(FARM_HARVEST_FRAMES.map((frame) => frame.filename)).toEqual(['human_farm_harvest1.png', 'human_farm_harvest2.png']);
     expect(ANIMAL_EAT_FRAMES.map((frame) => frame.filename)).toEqual(['animal_eat1.png', 'animal_eat2.png']);
     expect(COOK_STEAM_FRAMES.map((frame) => frame.filename)).toEqual(['cook_pot_steam1.png', 'cook_pot_steam2.png']);
   });
 
-  it('farm_water references the repository’s existing approved idle, never an external placeholder', () => {
-    expect(FARM_WATER_IDLE_TEXTURE_KEY).toBe(HUMAN_ASSETS.idle.normal.textureKey);
-    expect(HUMAN_ASSET_LIST.map((asset) => asset.textureKey)).toContain(FARM_WATER_IDLE_TEXTURE_KEY);
-    // The idle PNG is loaded with the human assets, not a second time here.
-    expect(TURN2_ASSET_LIST.map((asset) => asset.textureKey)).not.toContain(FARM_WATER_IDLE_TEXTURE_KEY);
+  it('never loads an external placeholder or a file the registry does not name', () => {
     const sources = ['turn2Assets.ts', 'lifeAnimation.ts', 'IslandScene.ts'].map((file) =>
       readFileSync(new URL(`src/presentation/${file}`, ROOT), 'utf8'),
     );
@@ -223,7 +277,7 @@ describe('Turn 2 animation contract', () => {
     // Only the registered files are ever requested: no ad-hoc image paths in the Scene.
     const scene = sources[2];
     expect(scene).toContain('for (const asset of TURN2_ASSET_LIST)');
-    expect(scene).not.toMatch(/\.jpg|human_farm_|animal_eat|cook_pot|hut-stage2/);
+    expect(scene).not.toMatch(/\.jpg|human_farm_|animal_eat|cook_pot|hut-stage2|farm_plot/);
   });
 
   it('stands the idle frame where the human stands in the water frame', () => {
@@ -449,6 +503,10 @@ const union = (boxes: readonly Box[]): Box => ({
 });
 
 const PLOT_BOX = union([...FARM_HARVEST_FRAMES, FARM_WATER_FRAME].map((frame) => visibleBox(frame, fileBytes(frame), LAYOUT.plot)));
+// The expanded farm: the composite plot plus every standalone tile's visible art.
+const TILE_BYTES = fileBytes(FARM_PLOT_TILE);
+const TILE_BOXES = LAYOUT.farmPlotTiles.map((ground) => visibleBox(FARM_PLOT_TILE, TILE_BYTES, ground));
+const FARM_BOX = union([PLOT_BOX, ...TILE_BOXES]);
 const COOK_BOX = union(COOK_STEAM_FRAMES.map((frame) => visibleBox(frame, fileBytes(frame), LAYOUT.cookingFire)));
 const HUT_BOX = visibleBox(HUT_ASSET, fileBytes(HUT_ASSET), LAYOUT.hut);
 
@@ -488,6 +546,89 @@ function routeSamples(): { x: number; y: number }[] {
   return Array.from({ length: 121 }, (_, i) => walkRoute(LAYOUT.humanPlotRoute, (duration * i) / 120));
 }
 
+describe('Expanded farm layout', () => {
+  it('lays out one tile per grid cell outside the composite plot, on one coherent isometric lattice', () => {
+    const { along, across, compositeCells } = FARM_GRID;
+    expect(LAYOUT.farmPlotTiles).toHaveLength(along * across - compositeCells * compositeCells);
+    const stepX = FARM_TILE_STEP_PX.x * FARM_BASE_SCALE;
+    const stepY = FARM_TILE_STEP_PX.y * FARM_BASE_SCALE;
+    const first = LAYOUT.farmPlotTiles[0];
+    const cells = new Set<string>();
+    for (const tile of LAYOUT.farmPlotTiles) {
+      // x = x0 + (a + b) * stepX and y = y0 + (a - b) * stepY for integers a, b: parity and spacing hold.
+      const sum = (tile.x - first.x) / stepX;
+      const diff = (tile.y - first.y) / stepY;
+      expect(Math.abs(sum - Math.round(sum))).toBeLessThan(1e-6);
+      expect(Math.abs(diff - Math.round(diff))).toBeLessThan(1e-6);
+      expect(Math.abs((Math.round(sum) + Math.round(diff)) % 2)).toBe(0);
+      cells.add(`${tile.x.toFixed(4)},${tile.y.toFixed(4)}`);
+    }
+    expect(cells.size).toBe(LAYOUT.farmPlotTiles.length); // no two tiles on the same spot
+    // Tiles share one anchor convention and scale, so they cannot jump relative to each other.
+    expect(FARM_PLOT_TILE.baseScale).toBe(FARM_BASE_SCALE);
+  });
+
+  it('never covers the composite plot cells with a tile', () => {
+    const composite = FARM_HARVEST_FRAMES[0];
+    const origin = groundOrigin(composite);
+    const centre = {
+      x: LAYOUT.plot.x + FARM_COMPOSITE_PLOT_CENTER_PX.x * FARM_BASE_SCALE,
+      y: LAYOUT.plot.y + FARM_COMPOSITE_PLOT_CENTER_PX.y * FARM_BASE_SCALE,
+    };
+    expect(origin.x).toBeCloseTo(289 / 512, 9);
+    const tileTopCentreOffset = FARM_TILE_TOP_CENTER_ABOVE_ANCHOR_PX * FARM_BASE_SCALE;
+    for (const tile of LAYOUT.farmPlotTiles) {
+      const tileCentre = { x: tile.x, y: tile.y - tileTopCentreOffset };
+      // A tile's top-face centre is at least one cell away from the composite plot's centre.
+      const cellsAway = Math.abs(tileCentre.x - centre.x) / (FARM_TILE_STEP_PX.x * FARM_BASE_SCALE);
+      expect(cellsAway).toBeGreaterThan(0.99);
+    }
+  });
+
+  it('is close to the Visual Reference’s plot in size and shape (about 140x90 design px)', () => {
+    const width = FARM_BOX.right - FARM_BOX.left;
+    const height = FARM_BOX.bottom - FARM_BOX.top;
+    // Reference plot: about 145x92 reference px; the island is drawn 0.95x as wide here.
+    expect(width).toBeGreaterThan(138 * 0.75);
+    expect(width).toBeLessThan(138 * 1.25);
+    expect(height).toBeGreaterThan(88 * 0.65);
+    expect(height).toBeLessThan(88 * 1.2);
+    // A wider-than-tall field, like the reference's parallelogram.
+    expect(width / height).toBeGreaterThan(1.3);
+  });
+
+  it('keeps the whole farm left of the central reserved space and clear of the UI, hut, fire, animal and future space', () => {
+    for (const box of [FARM_BOX, ...TILE_BOXES]) {
+      expect(box.bottom).toBeLessThan(LAYOUT.ui.panelTop);
+      expect(box.left).toBeGreaterThan(LAYOUT.island.left);
+      expect(box.top).toBeGreaterThan(LAYOUT.island.top);
+      for (const other of [HUT_BOX, FIRE_BOX, ANIMAL_REACH, COOK_BOX, ...LAYOUT.growthSpaces]) {
+        expect(overlaps(box, other)).toBe(false);
+      }
+    }
+    const central = LAYOUT.growthSpaces.find((space) => space.id === 'central');
+    expect(FARM_BOX.right).toBeLessThan(central?.left ?? 0);
+    // A clear lane remains between the farm and the hut for walking.
+    expect(HUT_BOX.top - FARM_BOX.bottom).toBeGreaterThan(8);
+  });
+
+  it('keeps every tile on grass, away from cliffs, water and the sand path', () => {
+    for (const tile of LAYOUT.farmPlotTiles) {
+      const px = toIslandPx(tile);
+      expect(groundAt(px.x, px.y)).toBe('grass');
+      for (const [dx, dy] of [[-14, 0], [14, 0], [0, -8], [0, 8]]) expect(groundAt(px.x + dx, px.y + dy)).not.toBe('none');
+    }
+  });
+
+  it('keeps the walking route off every tile (feet) except at the Human’s own spot', () => {
+    for (const point of routeSamples()) {
+      if (Math.hypot(point.x - LAYOUT.plotHuman.x, point.y - LAYOUT.plotHuman.y) < 40) continue;
+      const feet = { left: point.x - 8, right: point.x + 8, top: point.y - 3, bottom: point.y + 3 };
+      for (const box of TILE_BOXES) expect(overlaps(feet, box)).toBe(false);
+    }
+  });
+});
+
 describe('Turn 2 layout (360x640 and 390x844 share the 720x1280 design space)', () => {
   it('puts the plot on the left-middle terrace at about the animal’s height, on grass, above the UI', () => {
     // Left of the island's centre line, level with the animal (the Turn 2 Visual Reference).
@@ -498,9 +639,14 @@ describe('Turn 2 layout (360x640 and 390x844 share the 720x1280 design space)', 
     expect(LAYOUT.plot.y).toBeLessThan(LAYOUT.hut.y - 100);
     expect(PLOT_BOX.bottom).toBeLessThan(LAYOUT.ui.panelTop);
     expect(PLOT_BOX.left).toBeGreaterThan(LAYOUT.island.left);
+    // The composite's contact point, the Human beside it and every standalone tile stand on grass.
+    for (const point of [LAYOUT.plot, LAYOUT.plotHuman, ...LAYOUT.farmPlotTiles]) {
+      expect(groundAt(toIslandPx(point).x, toIslandPx(point).y)).toBe('grass');
+      expect(standable(point, 6)).toBe(true);
+    }
     for (const frame of [...FARM_HARVEST_FRAMES, FARM_WATER_FRAME]) {
       const box = visibleBox(frame, fileBytes(frame), LAYOUT.plot);
-      for (const corner of [[box.left, box.bottom], [box.right, box.bottom], [box.left, box.top], [box.right, box.top]]) {
+      for (const corner of [[box.left, box.bottom], [box.right, box.bottom]]) {
         expect(standable({ x: corner[0], y: corner[1] }, 3)).toBe(true);
       }
     }

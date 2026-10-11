@@ -15,6 +15,7 @@ import {
 const TURN1_MS = Object.values(WAVE_DURATIONS_MS).reduce((sum, ms) => sum + ms, 0);
 const TURN2_MS = PLANT_LIFE_WAVES.reduce((sum, wave) => sum + wave.durationMs, 0);
 const PLANT_IDS = PLANT_LIFE_WAVES.map((wave) => wave.id);
+const WAVE_MS = Object.fromEntries(PLANT_LIFE_WAVES.map((wave) => [wave.id, wave.durationMs])) as Record<string, number>;
 
 function afterTurn1(): SliceGame {
   const game = new SliceGame();
@@ -99,7 +100,7 @@ describe('Turn 2 input lock', () => {
     game.advance(PLANT_LIFE_WAVES[0].durationMs + 100);
     for (let i = 0; i < 30; i += 1) for (const element of ELEMENTS) game.selectElement(element);
     expect(game.snapshot().world.selectedElements).toEqual(['fire', 'plant']);
-    expect(game.snapshot().activeWave?.id).toBe('sprout-plot-appears');
+    expect(game.snapshot().activeWave?.id).toBe('human-waters-plot');
     game.advance(TURN2_MS);
     expect(game.snapshot().completedWaves).toEqual([
       ...FIRE_WARMING_WAVES.map((wave) => wave.id),
@@ -155,22 +156,26 @@ describe('Turn 2 completion', () => {
   it('declares the Waves in the specified order with the specified effects', () => {
     expect(PLANT_IDS).toEqual([
       'human-walks-to-plot',
-      'sprout-plot-appears',
       'human-waters-plot',
       'human-harvests-plot',
+      'farm-expands',
       'shelter-levels-up',
       'cooking-starts',
       'animal-eats',
     ]);
     const base = { ...createInitialWorldState(), isCold: false, fireStage: 1 };
     const effects = new Map(PLANT_LIFE_WAVES.map((wave) => [wave.id, wave.complete(base)]));
-    expect(effects.get('sprout-plot-appears')).toEqual({ ...base, plantStage: 1 });
+    // The sprout plot is established when the water Wave completes; the farm has expanded when its Wave completes.
+    // plantStage stays 0 through the walk, water1 and harvest2; it becomes 1 only when farm-expands completes.
+    expect(effects.get('human-waters-plot')).toEqual(base);
+    expect(effects.get('human-harvests-plot')).toEqual(base);
+    expect(effects.get('farm-expands')).toEqual({ ...base, plantStage: 1 });
     expect(effects.get('shelter-levels-up')).toEqual({ ...base, shelterStage: 2 });
     // The fire levels up from 1 to 2 (the same fire, not a second one).
     expect(effects.get('cooking-starts')).toEqual({ ...base, fireStage: 2 });
     // The one animal levels up from 1 to 2; population and everything else is untouched.
     expect(effects.get('animal-eats')).toEqual({ ...base, animalStage: 2 });
-    const persistent = ['sprout-plot-appears', 'shelter-levels-up', 'cooking-starts', 'animal-eats'];
+    const persistent = ['human-waters-plot', 'farm-expands', 'shelter-levels-up', 'cooking-starts', 'animal-eats'];
     for (const id of PLANT_IDS.filter((id) => !persistent.includes(id))) {
       expect(effects.get(id)).toEqual(base);
     }
@@ -179,16 +184,33 @@ describe('Turn 2 completion', () => {
   it('applies each persistent effect only when its own Wave completes', () => {
     const game = inTurn2();
     const world = () => game.snapshot().world;
-    const [walk, plot, water, harvest, hut] = PLANT_LIFE_WAVES.map((wave) => wave.durationMs);
+    const [walk, water, harvest, expand, hut] = PLANT_LIFE_WAVES.map((wave) => wave.durationMs);
 
-    game.advance(walk + plot - 1);
-    expect(game.snapshot().activeWave?.id).toBe('sprout-plot-appears');
+    // plantStage stays 0 through the walk, the 1.5 s water1 Wave and the 1.5 s harvest2 Wave.
+    game.advance(walk + water - 1);
+    expect(game.snapshot().activeWave?.id).toBe('human-waters-plot');
+    expect(world().plantStage).toBe(0);
+    game.advance(1);
+    expect(game.snapshot().activeWave?.id).toBe('human-harvests-plot');
+    expect(hasSproutPlot(world())).toBe(false);
+    game.advance(harvest - 1);
+    expect(game.snapshot().activeWave?.id).toBe('human-harvests-plot');
     expect(hasSproutPlot(world())).toBe(false);
     game.advance(1);
+    expect(game.snapshot().activeWave?.id).toBe('farm-expands');
+
+    // ...and through the whole active farm-expands Wave; it becomes 1 exactly when that Wave completes.
+    game.advance(expand - 1);
+    expect(game.snapshot().activeWave?.id).toBe('farm-expands');
+    expect(world().plantStage).toBe(0);
+    expect(hasSproutPlot(world())).toBe(false);
+    game.advance(1);
+    expect(game.snapshot().activeWave?.id).toBe('shelter-levels-up');
+    expect(world().plantStage).toBe(1);
     expect(hasSproutPlot(world())).toBe(true);
     expect(hasUpgradedHut(world())).toBe(false);
 
-    game.advance(water + harvest + hut - 1);
+    game.advance(hut - 1);
     expect(game.snapshot().activeWave?.id).toBe('shelter-levels-up');
     expect(hasUpgradedHut(world())).toBe(false);
     game.advance(1);
@@ -355,12 +377,56 @@ describe('Turn 2 logical clock', () => {
     ]);
   });
 
-  it('lays the Waves out on the 97 BPM beat grid', () => {
+  it('lays the Waves out on the 97 BPM beat grid, except the two farm-work poses fixed at 1.5 s', () => {
     for (const wave of PLANT_LIFE_WAVES) {
+      if (wave.id === 'human-waters-plot' || wave.id === 'human-harvests-plot') continue;
       const beats = wave.durationMs / BEAT_MS;
       expect(Math.abs(beats * 2 - Math.round(beats * 2))).toBeLessThan(0.01);
     }
     expect(BEAT_MS).toBeCloseTo(618.56, 1);
+  });
+
+  it('runs water1 for exactly 1500 ms, then harvest2 for exactly 1500 ms, then farm-expands (logical ms)', () => {
+    expect(WAVE_MS['human-waters-plot']).toBe(1500);
+    expect(WAVE_MS['human-harvests-plot']).toBe(1500);
+    const order = PLANT_IDS.slice(0, 4);
+    expect(order).toEqual(['human-walks-to-plot', 'human-waters-plot', 'human-harvests-plot', 'farm-expands']);
+    const game = inTurn2();
+    game.advance(WAVE_MS['human-walks-to-plot']);
+    expect(game.snapshot().activeWave).toMatchObject({ id: 'human-waters-plot', elapsedMs: 0, durationMs: 1500 });
+    game.advance(1499);
+    expect(game.snapshot().activeWave).toMatchObject({ id: 'human-waters-plot', elapsedMs: 1499 });
+    game.advance(1);
+    expect(game.snapshot().activeWave).toMatchObject({ id: 'human-harvests-plot', elapsedMs: 0, durationMs: 1500 });
+    game.advance(1500);
+    expect(game.snapshot().activeWave).toMatchObject({ id: 'farm-expands', elapsedMs: 0 });
+  });
+
+  it('keeps the farm Waves at exactly 1500 ms at any playback speed (logical time, not real time)', () => {
+    for (const speed of [0.25, 0.5, 2, 4]) {
+      const game = inTurn2();
+      game.setPlaybackSpeed(speed);
+      game.advance(WAVE_MS['human-walks-to-plot'] / speed);
+      expect(game.snapshot().activeWave?.id).toBe('human-waters-plot');
+      game.advance(1499 / speed);
+      expect(game.snapshot().activeWave?.id).toBe('human-waters-plot');
+      game.advance(1 / speed + 1e-9);
+      expect(game.snapshot().activeWave?.id).toBe('human-harvests-plot');
+      game.advance(1500 / speed + 1e-9);
+      expect(game.snapshot().activeWave?.id).toBe('farm-expands');
+    }
+  });
+
+  it('establishes the plant state once: plantStage only ever goes 0, then 1 (at farm-expands), never 2', () => {
+    const game = inTurn2();
+    const seen: number[] = [];
+    for (let t = 0; t < TURN2_MS + 200; t += 7) {
+      const stage = game.snapshot().world.plantStage;
+      if (seen[seen.length - 1] !== stage) seen.push(stage);
+      game.advance(7);
+    }
+    expect(seen).toEqual([0, 1]);
+    expect(game.snapshot().completedWaves.filter((id) => id === 'farm-expands')).toHaveLength(1);
   });
 
   it('requires at least one Wave in each Turn', () => {

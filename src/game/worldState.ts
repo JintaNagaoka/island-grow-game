@@ -7,7 +7,7 @@ export interface WorldState {
   readonly selectedElements: readonly Element[];
   // 0: no fire. 1: the campfire. 2: it has levelled up into a cooking fire (Turn 2).
   readonly fireStage: number;
-  // 0: no plot. 1: the sprout plot exists (Turn 2).
+  // 0: no plot. 1: the Turn 2 sprout plot exists (the expanded farm, once its Wave completes).
   readonly plantStage: number;
   // 1: the rain shelter the island starts with. 2: it has levelled up into a hut.
   readonly shelterStage: number;

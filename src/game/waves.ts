@@ -1,4 +1,4 @@
-import { BEAT_MS, PLANT_WAVE_BEATS, WAVE_DURATIONS_MS } from './timing';
+import { BEAT_MS, FARM_WORK_MS, PLANT_WAVE_BEATS, WAVE_DURATIONS_MS } from './timing';
 import type { WorldState } from './worldState';
 
 export type WaveId =
@@ -6,9 +6,9 @@ export type WaveId =
   | 'human-notices-and-approaches'
   | 'human-warms-up'
   | 'human-walks-to-plot'
-  | 'sprout-plot-appears'
   | 'human-waters-plot'
   | 'human-harvests-plot'
+  | 'farm-expands'
   | 'shelter-levels-up'
   | 'cooking-starts'
   | 'animal-eats';
@@ -45,7 +45,7 @@ export const FIRE_WARMING_WAVES: readonly Wave[] = [
 const beats = (count: number): number => Math.round(count * BEAT_MS);
 
 // Turn 2: the plant event (🌱 after Turn 1). The persistent WorldState changes are
-// the sprout plot, the shelter→hut, fire→cooking fire and animal→cared-for level-ups;
+// the sprout plot (plantStage 1, once the farm has grown in), the shelter→hut, fire→cooking fire and animal→cared-for level-ups;
 // the walk and farm-work Waves are presentation beats whose order the Wave sequence
 // itself guarantees. Population stays 1 and nothing else (animal count, fences,
 // ponds) changes.
@@ -57,19 +57,23 @@ export const PLANT_LIFE_WAVES: readonly Wave[] = [
     complete: (world) => world,
   },
   {
-    id: 'sprout-plot-appears',
-    durationMs: beats(PLANT_WAVE_BEATS.sproutPlotAppears),
-    complete: (world) => ({ ...world, plantStage: 1 }),
-  },
-  {
+    // water1 continuously, exactly 1.5 s. No persistent change.
     id: 'human-waters-plot',
-    durationMs: beats(PLANT_WAVE_BEATS.humanWatersPlot),
+    durationMs: FARM_WORK_MS.humanWatersPlot,
     complete: (world) => world,
   },
   {
+    // harvest2 continuously, exactly 1.5 s.
     id: 'human-harvests-plot',
-    durationMs: beats(PLANT_WAVE_BEATS.humanHarvestsPlot),
+    durationMs: FARM_WORK_MS.humanHarvestsPlot,
     complete: (world) => world,
+  },
+  {
+    // Settle on harvest1 while standalone plot tiles grow in, one after another, to
+    // the final farm. The sprout plot (plantStage 1) is established, once, when it completes.
+    id: 'farm-expands',
+    durationMs: beats(PLANT_WAVE_BEATS.farmExpands),
+    complete: (world) => ({ ...world, plantStage: 1 }),
   },
   {
     // The rain shelter develops into a hut.

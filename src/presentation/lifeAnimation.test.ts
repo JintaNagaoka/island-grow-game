@@ -7,6 +7,7 @@ import { computeFireVisual, computeHumanPose } from './animation';
 import { LAYOUT } from './layout';
 import {
   computeAnimalVisual,
+  computeFarmTiles,
   computeCookingFireVisual,
   computeFarmVisual,
   computeLifeHuman,
@@ -19,7 +20,6 @@ import {
   COOK_STEAM_FRAMES,
   FARM_HARVEST_FRAMES,
   FARM_WATER_FRAME,
-  TURN2_FRAME_DURATION_MS,
 } from './turn2Assets';
 
 const TURN1_MS = Object.values(WAVE_DURATIONS_MS).reduce((sum, ms) => sum + ms, 0);
@@ -89,7 +89,9 @@ describe('Turn 2 sequence', () => {
     const late = computeLifeHuman(inWave('human-walks-to-plot', 0.6));
     // Later legs head left along the free lane to the plot's lower left, then up to it.
     expect(['up', 'left']).toContain(late?.pose.walk?.direction);
-    expect(computeLifeHuman(inWave('human-walks-to-plot', 0.75))?.pose.walk?.direction).toBe('left');
+    const directions = new Set<string | undefined>();
+    for (let f = 0.05; f < 0.9; f += 0.05) directions.add(computeLifeHuman(inWave('human-walks-to-plot', f))?.pose.walk?.direction);
+    expect(directions.has('left')).toBe(true);
     // Arrival: the approved idle, at the plot, not walking.
     const arrived = computeLifeHuman(inWave('human-walks-to-plot', 0.999));
     expect(arrived?.pose.walk).toBeNull();
@@ -105,56 +107,80 @@ describe('Turn 2 sequence', () => {
   });
 
   it('keeps the campfire burning at full size until the cooking level-up (no replay of the Wave-1 grow-in)', () => {
-    for (const id of ['human-walks-to-plot', 'sprout-plot-appears', 'human-waters-plot', 'human-harvests-plot', 'shelter-levels-up']) {
+    for (const id of ['human-walks-to-plot', 'human-waters-plot', 'human-harvests-plot', 'farm-expands', 'shelter-levels-up']) {
       for (const fraction of [0, 0.5]) {
         expect(computeFireVisual(inWave(id, fraction))).toMatchObject({ visible: true, alpha: 1, scale: 1, burst: null });
       }
     }
   });
 
-  it('pops the plot in (water pose) while the standing human crossfades into the composite art', () => {
-    const early = inWave('sprout-plot-appears', 0.1);
-    const mid = inWave('sprout-plot-appears', 0.35);
-    const done = inWave('sprout-plot-appears', 0.9);
-    for (const snapshot of [early, mid, done]) expect(computeFarmVisual(snapshot).frame).toBe(FARM_WATER_FRAME);
-    expect(computeFarmVisual(early).alpha).toBeLessThan(computeFarmVisual(mid).alpha);
-    expect(computeFarmVisual(done).alpha).toBe(1);
-    expect(computeLifeHuman(early)?.alpha).toBeGreaterThan(computeLifeHuman(mid)?.alpha ?? 1);
-    expect(computeLifeHuman(done)?.alpha).toBe(0);
-    // Scale pops in toward 1 from below.
-    expect(computeFarmVisual(early).scale).toBeLessThan(1);
-  });
+  const sample = (id: string, count = 60) =>
+    Array.from({ length: count }, (_, i) => inWave(id, (i + 0.5) / count));
 
-  it('alternates farm_water: the approved idle (300 ms) then water1 (300 ms), from the Wave’s start', () => {
-    const base = startOf('human-waters-plot');
-    const at = (ms: number) => turn2At(base + ms).snapshot();
-    // 0..300: standing idle, no plot art.
-    for (const ms of [0, 100, 299]) {
-      expect(computeLifeHuman(at(ms))).toMatchObject({ alpha: 1, pose: { asset: 'idle' } });
-      expect(computeFarmVisual(at(ms)).frame).toBeNull();
-    }
-    // 300..600: the water pose composite, the standing sprite hidden.
-    for (const ms of [300, 450, 599]) {
-      expect(computeLifeHuman(at(ms))?.alpha).toBe(0);
-      expect(computeFarmVisual(at(ms)).frame).toBe(FARM_WATER_FRAME);
-    }
-    // And repeats.
-    expect(computeFarmVisual(at(600)).frame).toBeNull();
-    expect(computeFarmVisual(at(900)).frame).toBe(FARM_WATER_FRAME);
-  });
-
-  it('alternates farm_harvest harvest1 -> harvest2 every 300 ms of the logical clock', () => {
-    const base = startOf('human-harvests-plot');
-    for (const ms of [0, 100, 299, 300, 450, 599, 600, 900]) {
-      const snapshot = turn2At(base + ms).snapshot();
-      const expected = FARM_HARVEST_FRAMES[loopFrame(snapshot.clockMs)];
-      expect(computeFarmVisual(snapshot)).toMatchObject({ frame: expected, alpha: 1, scale: 1 });
+  it('shows water1 continuously for the whole 1500 ms water Wave, from the moment the Human has reached the plot', () => {
+    // Before: the standing Human at the plot, no composite art.
+    const before = inWave('human-walks-to-plot', 0.999);
+    expect(computeFarmVisual(before).frame).toBeNull();
+    expect(computeLifeHuman(before)).toMatchObject({ alpha: 1, pose: { asset: 'idle' } });
+    // During: the water1 composite at every sampled instant (never the idle, never another frame).
+    for (const snapshot of [inWave('human-waters-plot', 0), ...sample('human-waters-plot')]) {
+      expect(computeFarmVisual(snapshot).frame).toBe(FARM_WATER_FRAME);
+      expect(computeFarmVisual(snapshot).alpha).toBe(1);
       expect(computeLifeHuman(snapshot)?.alpha).toBe(0);
     }
-    expect(loopFrame(0)).toBe(0);
-    expect(loopFrame(TURN2_FRAME_DURATION_MS - 1)).toBe(0);
-    expect(loopFrame(TURN2_FRAME_DURATION_MS)).toBe(1);
-    expect(loopFrame(2 * TURN2_FRAME_DURATION_MS)).toBe(0);
+    // The plot pops in with a small scale-up that has settled to 1 well before the Wave ends.
+    expect(computeFarmVisual(inWave('human-waters-plot', 0)).scale).toBeLessThan(1);
+    expect(computeFarmVisual(inWave('human-waters-plot', 0.5)).scale).toBe(1);
+  });
+
+  it('shows harvest2 continuously for the whole 1500 ms harvest Wave', () => {
+    for (const snapshot of [inWave('human-harvests-plot', 0), ...sample('human-harvests-plot')]) {
+      expect(computeFarmVisual(snapshot)).toMatchObject({ frame: FARM_HARVEST_FRAMES[1], alpha: 1, scale: 1 });
+      expect(computeLifeHuman(snapshot)?.alpha).toBe(0);
+    }
+    expect(FARM_HARVEST_FRAMES[1].filename).toBe('human_farm_harvest2.png');
+    expect(FARM_WATER_FRAME.filename).toBe('human_farm_water1.png');
+  });
+
+  it('settles on harvest1 for the farm-expands Wave and for good afterwards', () => {
+    for (const snapshot of [inWave('farm-expands', 0), ...sample('farm-expands'), ...sample('shelter-levels-up', 5), ...sample('animal-eats', 5), turn2At(TURN2_MS + 1000).snapshot()]) {
+      expect(computeFarmVisual(snapshot)).toMatchObject({ frame: FARM_HARVEST_FRAMES[0], alpha: 1, scale: 1 });
+    }
+    expect(FARM_HARVEST_FRAMES[0].filename).toBe('human_farm_harvest1.png');
+  });
+
+  it('grows the standalone plot tiles in one after another during farm-expands, then keeps them', () => {
+    const count = LAYOUT.farmPlotTiles.length;
+    expect(count).toBeGreaterThan(20);
+    // Hidden until the Wave starts (water and harvest Waves).
+    for (const id of ['human-walks-to-plot', 'human-waters-plot', 'human-harvests-plot']) {
+      expect(computeFarmTiles(inWave(id, 0.9)).every((tile) => tile.alpha === 0)).toBe(true);
+    }
+    expect(computeFarmTiles(inWave('farm-expands', 0)).every((tile) => tile.alpha === 0)).toBe(true);
+    // Growing: the number of visible tiles never decreases, and each tile's alpha and scale never go down.
+    let previous = computeFarmTiles(inWave('farm-expands', 0));
+    let sawPartial = false;
+    for (const snapshot of sample('farm-expands', 80)) {
+      const tiles = computeFarmTiles(snapshot);
+      tiles.forEach((tile, i) => {
+        expect(tile.alpha).toBeGreaterThanOrEqual(previous[i].alpha - 1e-12);
+      });
+      const visible = tiles.filter((tile) => tile.alpha > 0).length;
+      if (visible > 0 && visible < count) sawPartial = true;
+      previous = tiles;
+    }
+    expect(sawPartial).toBe(true);
+    // By the end of the Wave every tile is fully in, and it stays so for the rest of Turn 2 and after.
+    expect(computeFarmTiles(inWave('farm-expands', 0.999)).every((tile) => tile.alpha > 0.99)).toBe(true);
+    for (const snapshot of [...sample('shelter-levels-up', 4), ...sample('animal-eats', 4), turn2At(TURN2_MS + 5000).snapshot()]) {
+      expect(computeFarmTiles(snapshot).every((tile) => tile.alpha === 1 && tile.scale === 1)).toBe(true);
+    }
+  });
+
+  it('shows no second farm object: the composite is never hidden once the expansion starts', () => {
+    for (const snapshot of [...sample('farm-expands', 20), turn2At(TURN2_MS + 1).snapshot()]) {
+      expect(computeFarmVisual(snapshot).frame).not.toBeNull();
+    }
   });
 
   it('levels the shelter up into a hut: the hut grows out of it, then replaces it', () => {
@@ -186,7 +212,7 @@ describe('Turn 2 sequence', () => {
       expect(computeShelterVisual(inWave(id, 0.5))).toMatchObject({ shelterAlpha: 0, hutAlpha: 1, hutScale: 1, glow: 0, sparkle: null });
     }
     // Before the level-up Wave, the rain shelter is all there is.
-    for (const id of ['human-walks-to-plot', 'sprout-plot-appears', 'human-waters-plot', 'human-harvests-plot']) {
+    for (const id of ['human-walks-to-plot', 'human-waters-plot', 'human-harvests-plot', 'farm-expands']) {
       expect(computeShelterVisual(inWave(id, 0.5))).toMatchObject({ shelterAlpha: 1, hutAlpha: 0 });
     }
   });
@@ -321,7 +347,8 @@ describe('Turn 2 sequence', () => {
       seen.pot.add(computeCookingFireVisual(snapshot).frameTextureKey);
       seen.eat.add(computeAnimalVisual(snapshot).frameTextureKey);
     }
-    expect([...seen.farm].sort()).toEqual(['farm-harvest-1', 'farm-harvest-2']);
+    // The farm is settled on harvest1 (no more alternation).
+    expect([...seen.farm]).toEqual(['farm-harvest-1']);
     expect(seen.pot.size).toBe(2);
     expect(seen.eat.size).toBe(2);
   });
@@ -332,6 +359,7 @@ describe('Turn 2 visuals follow the logical clock only', () => {
     const farm = computeFarmVisual(snapshot);
     return {
       life: computeLifeHuman(snapshot),
+      tiles: computeFarmTiles(snapshot),
       farm: { ...farm, frame: farm.frame?.textureKey ?? null },
       shelter: computeShelterVisual(snapshot),
       fire: computeFireVisual(snapshot),
@@ -341,7 +369,7 @@ describe('Turn 2 visuals follow the logical clock only', () => {
   }
 
   it('is identical at the same logical time at any playback speed', () => {
-    for (const logicalMs of [500, 2600, 3500, 4300, 5200, 6600, 8000, 9500, TURN2_MS + 500]) {
+    for (const logicalMs of [500, 1800, 2600, 3300, 4500, 5300, 5900, 6600, 7600, 9000, 10500, TURN2_MS + 500]) {
       const baseline = visualsAt(turn2At(logicalMs).snapshot());
       for (const speed of [0.25, 0.5, 2, 4]) {
         expect(visualsAt(turn2At(logicalMs, speed).snapshot())).toEqual(baseline);

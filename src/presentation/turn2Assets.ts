@@ -1,4 +1,4 @@
-import { HUMAN_ASSETS } from './humanAssets';
+import { FARM_WORK_MS } from '../game/timing';
 import type { Point } from './layout';
 import { FIRE_ASSET, WORLD_ASSETS, type WorldAsset } from './worldAssets';
 
@@ -25,8 +25,10 @@ export const TURN2_FRAME_SIZE = 512;
 // --- Plot: the supplied composite farm-work art (human + sprout plot in one PNG).
 // The plot's ground point on the island; every farm frame is anchored to it.
 // Left-middle grass terrace at about the animal's height (the Turn 2 Visual
-// Reference), above the hut and clear of the central growth space.
-const PLOT_PLACEMENT: Point = { x: 330, y: 745 };
+// Reference), above the hut. It sits far enough left that the whole expanded farm
+// (the Human, this composite and the standalone tiles to its right) stays left of
+// the central growth space.
+const PLOT_PLACEMENT: Point = { x: 225, y: 724 };
 
 // The farm frames draw the Human much smaller on their 512px canvas than the
 // approved Human PNGs do (head about 97 px wide against about 200-220 px), so the
@@ -49,6 +51,36 @@ export const FARM_HARVEST_FRAMES = [
   { ...FARM_COMMON, textureKey: 'farm-harvest-1', filename: 'human_farm_harvest1.png', groundAnchor: { x: 289, y: 479 } },
   { ...FARM_COMMON, textureKey: 'farm-harvest-2', filename: 'human_farm_harvest2.png', groundAnchor: { x: 309, y: 479 } },
 ] as const satisfies readonly Turn2Frame[];
+
+// --- Standalone plot tile (farm_plot_single.png, the supplied component, unedited).
+// Repeated copies grow the farm to the Visual Reference's size. Anchor: bottom
+// centre of the tile's visible art (the same convention as every other frame).
+export const FARM_PLOT_TILE: Turn2Frame = {
+  textureKey: 'farm-plot-single',
+  filename: 'farm_plot_single.png',
+  dir: TURN2_WORLD_ASSET_DIR,
+  width: TURN2_FRAME_SIZE,
+  height: TURN2_FRAME_SIZE,
+  groundAnchor: { x: 256, y: 284 },
+  // The same scale as the composite frames: one tile is one cell of their own plot.
+  baseScale: FARM_BASE_SCALE,
+  placementSpace: 'island',
+  placement: PLOT_PLACEMENT,
+};
+
+// Isometric tile geometry in the tile PNG's pixels, measured from its art: the top
+// face is a 86x43 diamond, so a neighbouring tile is half that away along each
+// axis; the top face's centre is 36.5 px above the anchor.
+export const FARM_TILE_STEP_PX: Point = { x: 43, y: 21.5 };
+export const FARM_TILE_TOP_CENTER_ABOVE_ANCHOR_PX = 36.5;
+// The top-face centre of the plot drawn inside human_farm_harvest1.png (a 2x2 block
+// of those cells), relative to that frame's ground anchor, in its pixels. The
+// expansion tiles are laid out on the same grid around it.
+export const FARM_COMPOSITE_PLOT_CENTER_PX: Point = { x: 14, y: -58 };
+// The farm grid in cells: `along` runs down-right, `across` runs up-right. The
+// composite plot covers the cells where both indices are 0 or 1; every other cell
+// gets a standalone tile. 6x7 cells reaches the Visual Reference's footprint.
+export const FARM_GRID = { along: 6, across: 7, compositeCells: 2 } as const;
 
 export const FARM_WATER_FRAME: Turn2Frame = {
   ...FARM_COMMON,
@@ -106,40 +138,34 @@ export const HUT_ASSET: Turn2Frame = {
   placement: WORLD_ASSETS.shelter.placement,
 };
 
-// --- Animation contract (frame order, 300 ms per frame, repeat). Texture keys
-// are the single source for both the loader and the Scene.
+// --- Looping animation contract (frame order, 300 ms per frame, repeat) for the
+// animal and the cooking fire. Texture keys are the single source for both the
+// loader and the Scene.
 export const TURN2_FRAME_DURATION_MS = 300;
 
-// farm_water: the existing approved human idle first, then water1. The idle
-// frame is the repository's own approved art (texture key 'idle'); no external
-// placeholder file is ever loaded. It is drawn with its own approved origin and
-// the shared human scale, standing where the human stands in water1.
-export const FARM_WATER_IDLE_TEXTURE_KEY = HUMAN_ASSETS.idle.normal.textureKey;
 // The human's feet in water1, in that PNG's pixels (the lowest cream pixels of
-// the figure, measured from the supplied art). Standing the idle frame there
-// keeps the human put when the two frames alternate.
+// the figure, measured from the supplied art). The standing idle Human waits there,
+// so the swap to the water1 composite does not move the Human.
 export const FARM_WATER_HUMAN_FEET: Point = { x: 182, y: 404 };
 
+// The farm-work sequence after the Human reaches the plot (logical clock, once):
+// water1 for exactly 1.5 s, harvest2 for exactly 1.5 s, then settle on harvest1
+// while the standalone tiles grow in (see the farm-expands Wave). Frames are held,
+// not alternated: each pose is one continuous frame.
+export const FARM_WORK_SEQUENCE = [
+  { id: 'water', textureKey: FARM_WATER_FRAME.textureKey, durationMs: FARM_WORK_MS.humanWatersPlot },
+  { id: 'harvest', textureKey: FARM_HARVEST_FRAMES[1].textureKey, durationMs: FARM_WORK_MS.humanHarvestsPlot },
+  { id: 'settle', textureKey: FARM_HARVEST_FRAMES[0].textureKey, durationMs: null },
+] as const;
+
 export interface Turn2Animation {
-  readonly id: 'farm_harvest' | 'farm_water' | 'animal_eat' | 'cook_steam';
+  readonly id: 'animal_eat' | 'cook_steam';
   readonly frameTextureKeys: readonly string[];
   readonly frameDurationMs: number;
   readonly repeat: true;
 }
 
 export const TURN2_ANIMATIONS: readonly Turn2Animation[] = [
-  {
-    id: 'farm_harvest',
-    frameTextureKeys: FARM_HARVEST_FRAMES.map((frame) => frame.textureKey),
-    frameDurationMs: TURN2_FRAME_DURATION_MS,
-    repeat: true,
-  },
-  {
-    id: 'farm_water',
-    frameTextureKeys: [FARM_WATER_IDLE_TEXTURE_KEY, FARM_WATER_FRAME.textureKey],
-    frameDurationMs: TURN2_FRAME_DURATION_MS,
-    repeat: true,
-  },
   {
     id: 'animal_eat',
     frameTextureKeys: ANIMAL_EAT_FRAMES.map((frame) => frame.textureKey),
@@ -159,6 +185,7 @@ export const TURN2_ANIMATIONS: readonly Turn2Animation[] = [
 export const TURN2_ASSET_LIST: readonly Turn2Frame[] = [
   ...FARM_HARVEST_FRAMES,
   FARM_WATER_FRAME,
+  FARM_PLOT_TILE,
   ...ANIMAL_EAT_FRAMES,
   ...COOK_STEAM_FRAMES,
   HUT_ASSET,

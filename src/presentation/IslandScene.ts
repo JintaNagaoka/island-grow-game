@@ -28,6 +28,7 @@ import { LAYOUT } from './layout';
 import {
   computeAnimalVisual,
   computeCookingFireVisual,
+  computeFarmTiles,
   computeFarmVisual,
   computeLifeHuman,
   computeShelterVisual,
@@ -35,6 +36,7 @@ import {
 import {
   ANIMAL_EAT_FRAMES,
   COOK_STEAM_FRAMES,
+  FARM_PLOT_TILE,
   FARM_WATER_FRAME,
   HUT_ASSET,
   TURN2_ASSET_LIST,
@@ -82,6 +84,8 @@ export class IslandScene extends Phaser.Scene {
   private shelterGlow!: Phaser.GameObjects.Graphics;
   private shelterSparkles!: Phaser.GameObjects.Graphics;
   private farm!: Phaser.GameObjects.Image;
+  // The standalone plot tiles of the expanded farm, in LAYOUT.farmPlotTiles order.
+  private farmTiles: Phaser.GameObjects.Image[] = [];
   // The campfire levelled up: replaces fireSprite at the same ground point.
   private cookingFire!: Phaser.GameObjects.Image;
   private cookingGlow!: Phaser.GameObjects.Graphics;
@@ -148,6 +152,7 @@ export class IslandScene extends Phaser.Scene {
     this.renderShelter(snapshot);
     this.renderHuman(snapshot);
     this.renderFarm(snapshot);
+    this.renderFarmTiles(snapshot);
     this.renderCookingFire(snapshot);
     this.renderFire(snapshot);
     this.renderButtons(snapshot);
@@ -264,6 +269,17 @@ export class IslandScene extends Phaser.Scene {
       .setScale(farm.frame.baseScale * farm.scale)
       .setAlpha(farm.alpha)
       .setDepth(LAYOUT.plot.y + 2);
+  }
+
+  // Each tile grows in (scale and alpha) from its own ground point, from the logical
+  // clock alone; once the farm has expanded they all simply stay.
+  private renderFarmTiles(snapshot: SliceSnapshot): void {
+    computeFarmTiles(snapshot).forEach((tile, index) => {
+      this.farmTiles[index]
+        .setVisible(tile.alpha > 0)
+        .setAlpha(tile.alpha)
+        .setScale(FARM_PLOT_TILE.baseScale * tile.scale);
+    });
   }
 
   // The campfire levels up into the cooking fire at the campfire's ground point.
@@ -530,6 +546,9 @@ export class IslandScene extends Phaser.Scene {
     this.animalEat = this.addGroundSprite(ANIMAL_EAT_FRAMES[0], LAYOUT.animal.x, LAYOUT.animal.y).setVisible(false);
     this.animalSparkles = this.add.graphics().setDepth(LAYOUT.animal.y + 1.5);
     this.farm = this.addGroundSprite(FARM_WATER_FRAME, LAYOUT.plot.x, LAYOUT.plot.y).setVisible(false);
+    this.farmTiles = LAYOUT.farmPlotTiles.map((ground) =>
+      this.addGroundSprite(FARM_PLOT_TILE, ground.x, ground.y).setVisible(false),
+    );
     // The cooking fire shares the campfire's ground point and is drawn just over it.
     this.cookingGlow = this.add.graphics().setDepth(LAYOUT.cookingFire.y - 0.4);
     this.cookingFire = this.addGroundSprite(COOK_STEAM_FRAMES[0], LAYOUT.cookingFire.x, LAYOUT.cookingFire.y)
