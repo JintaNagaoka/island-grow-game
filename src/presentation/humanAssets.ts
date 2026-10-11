@@ -88,6 +88,10 @@ export function selectHumanAsset(
 // Every approved human PNG is a 512x512 canvas.
 export const HUMAN_FRAME_SIZE = 512;
 
+// Keep the resident visibly subordinate to the island and cave. The source
+// canvases are all 512px, so one uniform scale works for every pose.
+export const HUMAN_SPRITE_SCALE = 0.1;
+
 // Sprite origin (0..1) that puts the asset's ground anchor on the sprite's
 // ground position.
 export function humanAssetOrigin(metadata: HumanAssetMetadata): { x: number; y: number } {

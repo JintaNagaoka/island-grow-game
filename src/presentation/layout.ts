@@ -1,4 +1,10 @@
 import { DESIGN_HEIGHT, DESIGN_WIDTH } from './display';
+import {
+  COOK_STEAM_FRAMES,
+  FARM_WATER_FRAME,
+  FARM_WATER_HUMAN_FEET,
+  HUT_ASSET,
+} from './turn2Assets';
 import { FIRE_ASSET, WORLD_ASSETS, type WorldAsset } from './worldAssets';
 
 // All layout is expressed as ratios of the 9:16 design resolution so aspect
@@ -29,6 +35,15 @@ const assetGround = (asset: WorldAsset): Point => {
   return onIsland(asset.placement.x, asset.placement.y);
 };
 
+const HUMAN_WARM = onIsland(373, 971);
+const PLOT = assetGround(FARM_WATER_FRAME);
+// Where the human stands at the plot: its feet in the water-pose art, relative to
+// that frame's ground anchor, at the frame's scale.
+const PLOT_HUMAN: Point = {
+  x: PLOT.x + (FARM_WATER_HUMAN_FEET.x - FARM_WATER_FRAME.groundAnchor.x) * FARM_WATER_FRAME.baseScale,
+  y: PLOT.y + (FARM_WATER_HUMAN_FEET.y - FARM_WATER_FRAME.groundAnchor.y) * FARM_WATER_FRAME.baseScale,
+};
+
 const islandRect = (left: number, top: number, right: number, bottom: number) => {
   const a = onIsland(left, top);
   const b = onIsland(right, bottom);
@@ -52,11 +67,29 @@ export const LAYOUT = {
   // Front: shelter, human, fire on the sand, with the open path kept free.
   shelter: assetGround(WORLD_ASSETS.shelter),
   humanStart: onIsland(346, 971),
-  humanWarm: onIsland(373, 971),
+  humanWarm: HUMAN_WARM,
   // Dev-only review loop (?humanWalkPreview): a rectangle that walks right,
   // down, left, then up so each approved view can be checked on a phone screen.
   humanWalkPreview: [onIsland(390, 740), onIsland(540, 740), onIsland(540, 850), onIsland(390, 850)] as readonly Point[],
   fire: assetGround(FIRE_ASSET),
+  // Turn 2. The plot sits on the right grass terrace; the hut stands exactly where
+  // the rain shelter stood; the pot is on the sand just right of the fire.
+  plot: PLOT,
+  plotHuman: PLOT_HUMAN,
+  hut: assetGround(HUT_ASSET),
+  pot: assetGround(COOK_STEAM_FRAMES[0]),
+  // The human's walk from the fire to the plot. The warm-up spot is a pocket
+  // between the shelter's right leg and the fire, so the walk first threads up
+  // that gap (about 8 design px wide at its narrowest; the feet clear both
+  // silhouettes), then crosses above the fire to the plot.
+  humanPlotRoute: [
+    HUMAN_WARM,
+    onIsland(381, 953),
+    onIsland(399, 933),
+    onIsland(400, 917),
+    onIsland(401, 877),
+    PLOT_HUMAN,
+  ] as readonly Point[],
   // Empty ground on purpose, so later growth has room to appear: the central
   // sand path and the beach in front of it.
   growthSpaces: [

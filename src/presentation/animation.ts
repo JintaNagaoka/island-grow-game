@@ -70,8 +70,8 @@ const TAU = Math.PI * 2;
 // play-review decision). Playback speed scales it because it reads clockMs.
 export const FIRE_FRAME_INTERVAL_MS = 220;
 
-const clamp01 = (value: number): number => Math.min(1, Math.max(0, value));
-function easeOutBack(t: number): number {
+export const clamp01 = (value: number): number => Math.min(1, Math.max(0, value));
+export function easeOutBack(t: number): number {
   const c1 = 1.70158;
   const c3 = c1 + 1;
   const c = clamp01(t);
@@ -85,7 +85,7 @@ export function computeFireVisual(snapshot: SliceSnapshot): FireVisual {
   const frame = (Math.floor(snapshot.clockMs / FIRE_FRAME_INTERVAL_MS) % 2) as 0 | 1;
   if (!wave && !established) return { visible: false, scale: 0, frame, burst: null, seconds };
 
-  if (wave?.index === 0) {
+  if (wave?.id === 'fire-appears') {
     return {
       visible: true,
       scale: easeOutBack(wave.progress / 0.6),
@@ -112,7 +112,7 @@ export function computeEnvironmentMotion(snapshot: SliceSnapshot): EnvironmentMo
 // One frame of the approved walk at `step`, `walkElapsedMs` into the current
 // leg. The view comes from the movement direction, the cold overlay only from
 // isCold, and facing stays 1 because the left PNGs are supplied, never flipped.
-function walkingPose(
+export function walkingPose(
   step: { readonly x: number; readonly y: number },
   direction: HumanWalkDirection,
   walkElapsedMs: number,
@@ -137,7 +137,7 @@ function walkingPose(
 
 // A still pose from the approved registry. isCold alone picks the normal or
 // isCold PNG; the cold treatment is already part of that art.
-function stillPose(
+export function stillPose(
   state: HumanAnimationState,
   isCold: boolean,
   position: Point,
@@ -165,11 +165,11 @@ export function computeHumanPose(snapshot: SliceSnapshot): HumanPose {
 
   // The approved cold PNG already contains the curled pose, blue head and
   // zigzags. Keep the image completely still; no body shiver is added.
-  if (snapshot.phase === 'awaiting-input' || wave?.index === 0) {
+  if (snapshot.phase === 'awaiting-input' || wave?.id === 'fire-appears') {
     return stillPose('cold', isCold, LAYOUT.humanStart);
   }
 
-  if (wave?.index === 1) {
+  if (wave?.id === 'human-notices-and-approaches') {
     const p = wave.progress;
 
     // Notice the newly established fire until the walk starts. The notice art
@@ -188,7 +188,7 @@ export function computeHumanPose(snapshot: SliceSnapshot): HumanPose {
 
   // Near the fire the approved warm pose plays out the warm-up Wave. isCold is
   // still true until game logic completes that Wave, so this is warm_isCold.
-  if (wave?.index === 2) return stillPose('warm', isCold, LAYOUT.humanWarm);
+  if (wave?.id === 'human-warms-up') return stillPose('warm', isCold, LAYOUT.humanWarm);
 
   // Completion: isCold is now false, so the normal idle PNG is selected. A
   // subtle whole-image bob keeps the scene alive without changing the drawing.

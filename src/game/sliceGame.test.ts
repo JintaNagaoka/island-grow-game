@@ -22,11 +22,14 @@ describe('initial state', () => {
       turn: 0,
       selectedElements: [],
       fireStage: 0,
+      plantStage: 0,
+      shelterStage: 1,
       humanStage: 1,
       population: 1,
       isCold: true,
     });
     expect(snapshot.phase).toBe('awaiting-input');
+    expect(snapshot.selectableElements).toEqual(['fire']);
     expect(snapshot.inputLocked).toBe(false);
     expect(snapshot.activeWave).toBeNull();
     expect(snapshot.completedWaves).toEqual([]);
@@ -72,6 +75,8 @@ describe('fire selection', () => {
       turn: 0,
       selectedElements: ['fire'],
       fireStage: 1,
+      plantStage: 0,
+      shelterStage: 1,
       humanStage: 1,
       population: 1,
       isCold: false,
@@ -126,7 +131,7 @@ describe('input lock during Wave playback', () => {
 });
 
 describe('unimplemented elements', () => {
-  it.each(['plant', 'rock', 'water'] as const)(
+  it.each(['rock', 'water'] as const)(
     'rejects %s on the initial screen without starting any progression',
     (element) => {
       const game = new SliceGame();
@@ -139,7 +144,7 @@ describe('unimplemented elements', () => {
     },
   );
 
-  it.each(['plant', 'rock', 'water'] as const)('rejects %s after completion', (element) => {
+  it.each(['rock', 'water'] as const)('rejects %s after completion', (element) => {
     const game = new SliceGame();
     game.selectElement('fire');
     playToEnd(game);
