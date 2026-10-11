@@ -47,20 +47,28 @@ export interface HumanPose {
 
 export interface FireVisual {
   readonly visible: boolean;
+  // Whole-sprite scale: only the Wave-1 grow-in differs from 1. Established fire
+  // never wobbles (no scale, rotation or alpha oscillation of the PNG body).
   readonly scale: number;
+  // Which of the two campfire PNG frames to show; flame flicker is this alone.
+  readonly frame: 0 | 1;
   readonly burst: number | null;
   readonly seconds: number;
 }
 
+// Ambient motion of the single fantasy creature, as a small offset from its
+// ground point. The island's baked-in tree is a still part of the art.
 export interface EnvironmentMotion {
-  readonly treeSways: readonly number[];
-  readonly animalOffsets: readonly { x: number; y: number; turn: number }[];
+  readonly animalOffset: { readonly x: number; readonly y: number; readonly turn: number };
 }
 
 // Beat boundary inside the approach Wave, as a fraction of its logical length;
 // the walk begins here. Provisional timing: a human play-review decision.
 const WALK_START = 0.52;
 const TAU = Math.PI * 2;
+// Logical milliseconds each campfire frame is shown (provisional; a human
+// play-review decision). Playback speed scales it because it reads clockMs.
+export const FIRE_FRAME_INTERVAL_MS = 220;
 
 const clamp01 = (value: number): number => Math.min(1, Math.max(0, value));
 function easeOutBack(t: number): number {
@@ -74,36 +82,30 @@ export function computeFireVisual(snapshot: SliceSnapshot): FireVisual {
   const seconds = snapshot.clockMs / 1000;
   const wave = snapshot.activeWave;
   const established = snapshot.world.fireStage >= 1;
-  if (!wave && !established) return { visible: false, scale: 0, burst: null, seconds };
+  const frame = (Math.floor(snapshot.clockMs / FIRE_FRAME_INTERVAL_MS) % 2) as 0 | 1;
+  if (!wave && !established) return { visible: false, scale: 0, frame, burst: null, seconds };
 
-  const flicker =
-    1 + 0.06 * Math.sin(seconds * TAU * 7) + 0.04 * Math.sin(seconds * TAU * 11.3);
   if (wave?.index === 0) {
     return {
       visible: true,
-      scale: easeOutBack(wave.progress / 0.6) * flicker,
+      scale: easeOutBack(wave.progress / 0.6),
+      frame,
       burst: wave.progress,
       seconds,
     };
   }
-  return { visible: true, scale: flicker, burst: null, seconds };
+  return { visible: true, scale: 1, frame, burst: null, seconds };
 }
 
 export function computeEnvironmentMotion(snapshot: SliceSnapshot): EnvironmentMotion {
   const seconds = snapshot.clockMs / 1000;
-  const treeCount = LAYOUT.trees.length + LAYOUT.foreground.length;
+  const phase = seconds * 0.55;
   return {
-    treeSways: Array.from({ length: treeCount }, (_, index) =>
-      Math.sin(seconds * 0.8 + index * 1.7) * 0.025,
-    ),
-    animalOffsets: LAYOUT.animals.map((_, index) => {
-      const phase = seconds * (0.55 + index * 0.08) + index * 2.3;
-      return {
-        x: Math.sin(phase) * 5,
-        y: Math.sin(phase * 2) * 1.5,
-        turn: Math.sin(phase * 0.45),
-      };
-    }),
+    animalOffset: {
+      x: Math.sin(phase) * 5,
+      y: Math.sin(phase * 2) * 1.5,
+      turn: Math.sin(phase * 0.45),
+    },
   };
 }
 
