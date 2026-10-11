@@ -26,10 +26,10 @@ import {
 import { HUMAN_WALK_ANIMATIONS, planHumanAnimation } from './humanWalk';
 import { LAYOUT } from './layout';
 import {
-  computeAnimalEatVisual,
+  computeAnimalVisual,
+  computeCookingFireVisual,
   computeFarmVisual,
   computeLifeHuman,
-  computePotVisual,
   computeShelterVisual,
 } from './lifeAnimation';
 import {
@@ -82,8 +82,14 @@ export class IslandScene extends Phaser.Scene {
   private shelterGlow!: Phaser.GameObjects.Graphics;
   private shelterSparkles!: Phaser.GameObjects.Graphics;
   private farm!: Phaser.GameObjects.Image;
-  private pot!: Phaser.GameObjects.Image;
+  // The campfire levelled up: replaces fireSprite at the same ground point.
+  private cookingFire!: Phaser.GameObjects.Image;
+  private cookingGlow!: Phaser.GameObjects.Graphics;
+  private cookingSparkles!: Phaser.GameObjects.Graphics;
+  // The animal levelled up: replaces `animal` at the same ground point.
   private animalEat!: Phaser.GameObjects.Image;
+  private animalGlow!: Phaser.GameObjects.Graphics;
+  private animalSparkles!: Phaser.GameObjects.Graphics;
   private animalShadow!: Phaser.GameObjects.Graphics;
   private fireSprite!: Phaser.GameObjects.Image;
   private fireGlow!: Phaser.GameObjects.Graphics;
@@ -142,33 +148,52 @@ export class IslandScene extends Phaser.Scene {
     this.renderShelter(snapshot);
     this.renderHuman(snapshot);
     this.renderFarm(snapshot);
-    this.renderPot(snapshot);
+    this.renderCookingFire(snapshot);
     this.renderFire(snapshot);
     this.renderButtons(snapshot);
   }
 
+  // One animal, one ground point: the wild art levels up into the eating art by a
+  // clock-derived cross-fade/swell under a short glow; they are never two animals.
   private renderEnvironment(snapshot: SliceSnapshot): void {
-    const eat = computeAnimalEatVisual(snapshot);
-    this.animal.setVisible(!eat.eating);
-    this.animalEat.setVisible(eat.eating);
-    if (eat.eating) {
-      // The feeding art stands on the grazing animal's ground point
-      // and keeps still; the two frames are the motion.
-      const ground = LAYOUT.animal;
-      if (this.animalEat.texture.key !== eat.frameTextureKey) this.animalEat.setTexture(eat.frameTextureKey);
-      const frame = ANIMAL_EAT_FRAMES[eat.frame];
-      const origin = groundOrigin(frame);
-      this.animalEat.setOrigin(origin.x, origin.y).setPosition(ground.x, ground.y).setDepth(ground.y);
-      this.drawAnimalShadow(ground, frame.width * frame.baseScale * 0.55);
-      return;
-    }
-    const { x, y, turn } = computeEnvironmentMotion(snapshot).animalOffset;
-    const ground = { x: LAYOUT.animal.x + x, y: LAYOUT.animal.y + y };
-    this.animal.setPosition(ground.x, ground.y);
-    this.animal.setRotation(turn * 0.025);
-    this.animal.setDepth(ground.y);
-    // Shadow follows the sprite's on-screen width (0.71x as wide, 0.126x as tall as the sprite is wide).
-    this.drawAnimalShadow(ground, WORLD_ASSETS.animal.width * WORLD_ASSETS.animal.baseScale * 0.71);
+    const visual = computeAnimalVisual(snapshot);
+    const drift = computeEnvironmentMotion(snapshot).animalOffset;
+    const wildGround = { x: LAYOUT.animal.x + drift.x, y: LAYOUT.animal.y + drift.y };
+    this.animal
+      .setVisible(visual.wildAlpha > 0)
+      .setAlpha(visual.wildAlpha)
+      .setScale(WORLD_ASSETS.animal.baseScale * visual.wildScale)
+      .setPosition(wildGround.x, wildGround.y)
+      .setRotation(drift.turn * 0.025)
+      .setDepth(wildGround.y);
+
+    const frame = ANIMAL_EAT_FRAMES[visual.frame];
+    const origin = groundOrigin(frame);
+    if (this.animalEat.texture.key !== visual.frameTextureKey) this.animalEat.setTexture(visual.frameTextureKey);
+    this.animalEat
+      .setVisible(visual.eatAlpha > 0)
+      .setAlpha(visual.eatAlpha)
+      .setOrigin(origin.x, origin.y)
+      .setScale(frame.baseScale * visual.eatScale)
+      .setPosition(LAYOUT.animal.x, LAYOUT.animal.y)
+      .setDepth(LAYOUT.animal.y + 0.1);
+
+    // Shadow follows whichever art is mostly showing (0.71x as wide, 0.126x as tall as the sprite is wide).
+    const eating = visual.eatAlpha >= 0.5;
+    this.drawAnimalShadow(
+      eating ? LAYOUT.animal : wildGround,
+      eating
+        ? frame.width * frame.baseScale * 0.55
+        : WORLD_ASSETS.animal.width * WORLD_ASSETS.animal.baseScale * 0.71,
+    );
+    this.drawLevelUp(
+      this.animalGlow,
+      this.animalSparkles,
+      LAYOUT.animal,
+      WORLD_ASSETS.animal.width * WORLD_ASSETS.animal.baseScale,
+      visual.glow,
+      visual.sparkle,
+    );
   }
 
   private drawAnimalShadow(ground: { x: number; y: number }, width: number): void {
@@ -176,6 +201,31 @@ export class IslandScene extends Phaser.Scene {
     this.animalShadow.fillStyle(0x183321, 0.24);
     this.animalShadow.fillEllipse(ground.x + 2, ground.y + 1, width, (width / 0.71) * 0.126);
     this.animalShadow.setDepth(ground.y - 0.5);
+  }
+
+  // The shared level-up accent: a soft warm glow behind the object and a few
+  // sparkles rising from it, from the Wave's logical progress alone.
+  private drawLevelUp(
+    glow: Phaser.GameObjects.Graphics,
+    sparkles: Phaser.GameObjects.Graphics,
+    ground: { x: number; y: number },
+    width: number,
+    glowStrength: number,
+    sparkle: number | null,
+  ): void {
+    glow.clear();
+    sparkles.clear();
+    if (sparkle === null) return;
+    const { x, y } = ground;
+    glow.fillStyle(0xfff0a0, 0.3 * glowStrength);
+    glow.fillEllipse(x, y - 28, width * 1.15, width * 0.62);
+    glow.fillStyle(0xffe27a, 0.22 * glowStrength);
+    glow.fillEllipse(x, y - 4, width * 0.95, width * 0.2);
+    for (let i = 0; i < 7; i += 1) {
+      const t = (sparkle * 1.3 + i / 7) % 1;
+      sparkles.fillStyle(0xfff3b0, (1 - t) * 0.9 * glowStrength);
+      sparkles.fillCircle(x + ((i - 3) / 3) * width * 0.42, y - 10 - t * 70, 2.2);
+    }
   }
 
   // The rain shelter levels up into the hut: both stand on the same ground
@@ -190,23 +240,14 @@ export class IslandScene extends Phaser.Scene {
       .setAlpha(visual.hutAlpha)
       .setVisible(visual.hutAlpha > 0)
       .setScale(HUT_ASSET.baseScale * visual.hutScale);
-
-    const { x, y } = LAYOUT.hut;
-    const glow = this.shelterGlow;
-    const sparkles = this.shelterSparkles;
-    glow.clear();
-    sparkles.clear();
-    if (visual.sparkle === null) return;
-    const width = HUT_ASSET.width * HUT_ASSET.baseScale;
-    glow.fillStyle(0xfff0a0, 0.3 * visual.glow);
-    glow.fillEllipse(x, y - 28, width * 1.15, width * 0.62);
-    glow.fillStyle(0xffe27a, 0.22 * visual.glow);
-    glow.fillEllipse(x, y - 4, width * 0.95, width * 0.2);
-    for (let i = 0; i < 7; i += 1) {
-      const t = (visual.sparkle * 1.3 + i / 7) % 1;
-      sparkles.fillStyle(0xfff3b0, (1 - t) * 0.9 * visual.glow);
-      sparkles.fillCircle(x + ((i - 3) / 3) * width * 0.42, y - 10 - t * 70, 2.2);
-    }
+    this.drawLevelUp(
+      this.shelterGlow,
+      this.shelterSparkles,
+      LAYOUT.hut,
+      HUT_ASSET.width * HUT_ASSET.baseScale,
+      visual.glow,
+      visual.sparkle,
+    );
   }
 
   // The composite farm-work art (human + sprout plot) stands on the plot's ground
@@ -225,14 +266,26 @@ export class IslandScene extends Phaser.Scene {
       .setDepth(LAYOUT.plot.y + 2);
   }
 
-  private renderPot(snapshot: SliceSnapshot): void {
-    const pot = computePotVisual(snapshot);
-    this.pot.setVisible(pot.visible);
-    if (!pot.visible) return;
-    if (this.pot.texture.key !== pot.frameTextureKey) this.pot.setTexture(pot.frameTextureKey);
-    const frame = COOK_STEAM_FRAMES[pot.frame];
-    const origin = groundOrigin(frame);
-    this.pot.setOrigin(origin.x, origin.y).setScale(frame.baseScale * pot.scale);
+  // The campfire levels up into the cooking fire at the campfire's ground point.
+  // The campfire art fades out in renderFire() while this grows in, so the two are
+  // never shown as independent fires.
+  private renderCookingFire(snapshot: SliceSnapshot): void {
+    const cook = computeCookingFireVisual(snapshot);
+    this.cookingFire.setVisible(cook.visible).setAlpha(cook.alpha);
+    if (cook.visible) {
+      if (this.cookingFire.texture.key !== cook.frameTextureKey) this.cookingFire.setTexture(cook.frameTextureKey);
+      const frame = COOK_STEAM_FRAMES[cook.frame];
+      const origin = groundOrigin(frame);
+      this.cookingFire.setOrigin(origin.x, origin.y).setScale(frame.baseScale * cook.scale);
+    }
+    this.drawLevelUp(
+      this.cookingGlow,
+      this.cookingSparkles,
+      LAYOUT.cookingFire,
+      FIRE_ASSET.width * FIRE_ASSET.baseScale,
+      cook.glow,
+      cook.sparkle,
+    );
   }
 
   private renderHuman(snapshot: SliceSnapshot): void {
@@ -336,9 +389,12 @@ export class IslandScene extends Phaser.Scene {
     const s = fire.scale;
     // Texture swap only: every frame has the same size, anchor and scale, so the
     // stones and contact point never move.
-    this.fireSprite.setTexture(FIRE_FRAMES[fire.frame].textureKey).setScale(FIRE_ASSET.baseScale * s);
+    this.fireSprite
+      .setTexture(FIRE_FRAMES[fire.frame].textureKey)
+      .setScale(FIRE_ASSET.baseScale * s)
+      .setAlpha(fire.alpha);
 
-    glow.fillStyle(0xffbd55, 0.16);
+    glow.fillStyle(0xffbd55, 0.16 * fire.alpha);
     glow.fillEllipse(x, y + 2, 116 * s, 35 * s);
 
     if (fire.burst !== null && fire.burst < 0.8) {
@@ -353,7 +409,7 @@ export class IslandScene extends Phaser.Scene {
 
     for (let i = 0; i < 3; i += 1) {
       const t = (fire.seconds * 0.55 + i / 3) % 1;
-      sparks.fillStyle(0xffc860, (1 - t) * 0.85);
+      sparks.fillStyle(0xffc860, (1 - t) * 0.85 * fire.alpha);
       sparks.fillCircle(x + Math.sin(fire.seconds * 3 + i * 2.1) * 7 * s, y - 40 * s - t * 38, 2);
     }
   }
@@ -469,12 +525,17 @@ export class IslandScene extends Phaser.Scene {
       .setVisible(false);
     this.shelterSparkles = this.add.graphics().setDepth(LAYOUT.hut.y + 1.5);
     this.animalShadow = this.add.graphics();
+    this.animalGlow = this.add.graphics().setDepth(LAYOUT.animal.y - 0.4);
     this.animal = this.addGroundSprite(WORLD_ASSETS.animal, LAYOUT.animal.x, LAYOUT.animal.y);
     this.animalEat = this.addGroundSprite(ANIMAL_EAT_FRAMES[0], LAYOUT.animal.x, LAYOUT.animal.y).setVisible(false);
+    this.animalSparkles = this.add.graphics().setDepth(LAYOUT.animal.y + 1.5);
     this.farm = this.addGroundSprite(FARM_WATER_FRAME, LAYOUT.plot.x, LAYOUT.plot.y).setVisible(false);
-    this.pot = this.addGroundSprite(COOK_STEAM_FRAMES[0], LAYOUT.pot.x, LAYOUT.pot.y)
-      .setDepth(LAYOUT.pot.y + 1)
+    // The cooking fire shares the campfire's ground point and is drawn just over it.
+    this.cookingGlow = this.add.graphics().setDepth(LAYOUT.cookingFire.y - 0.4);
+    this.cookingFire = this.addGroundSprite(COOK_STEAM_FRAMES[0], LAYOUT.cookingFire.x, LAYOUT.cookingFire.y)
+      .setDepth(LAYOUT.cookingFire.y + 1.2)
       .setVisible(false);
+    this.cookingSparkles = this.add.graphics().setDepth(LAYOUT.cookingFire.y + 1.6);
     this.fireGlow = this.add.graphics().setDepth(LAYOUT.fire.y - 0.5);
     this.fireSprite = this.addGroundSprite(FIRE_FRAMES[0], LAYOUT.fire.x, LAYOUT.fire.y)
       .setDepth(LAYOUT.fire.y + 1)

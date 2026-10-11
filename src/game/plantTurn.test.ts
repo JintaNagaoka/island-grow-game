@@ -3,7 +3,14 @@ import { describe, expect, it } from 'vitest';
 import { SliceGame, type SliceSnapshot } from './sliceGame';
 import { BEAT_MS, WAVE_DURATIONS_MS } from './timing';
 import { FIRE_WARMING_WAVES, PLANT_LIFE_WAVES, type Wave, type WaveId } from './waves';
-import { ELEMENTS, createInitialWorldState, hasSproutPlot, hasUpgradedHut } from './worldState';
+import {
+  ELEMENTS,
+  createInitialWorldState,
+  hasCaredForAnimal,
+  hasCookingFire,
+  hasSproutPlot,
+  hasUpgradedHut,
+} from './worldState';
 
 const TURN1_MS = Object.values(WAVE_DURATIONS_MS).reduce((sum, ms) => sum + ms, 0);
 const TURN2_MS = PLANT_LIFE_WAVES.reduce((sum, wave) => sum + wave.durationMs, 0);
@@ -69,6 +76,8 @@ describe('Turn 2 availability', () => {
     // Nothing persistent has changed yet.
     expect(snapshot.world.plantStage).toBe(0);
     expect(snapshot.world.shelterStage).toBe(1);
+    expect(snapshot.world.fireStage).toBe(1);
+    expect(snapshot.world.animalStage).toBe(1);
   });
 });
 
@@ -100,7 +109,7 @@ describe('Turn 2 input lock', () => {
 });
 
 describe('Turn 2 completion', () => {
-  it('reaches the Turn 2 state: sprout plot and hut, one resident, one animal', () => {
+  it('reaches the Turn 2 state: plot, hut, cooking fire and cared-for animal, one resident, one animal', () => {
     const game = inTurn2();
     game.advance(TURN2_MS);
     const snapshot = game.snapshot();
@@ -110,19 +119,22 @@ describe('Turn 2 completion', () => {
     expect(snapshot.world).toEqual({
       turn: 0,
       selectedElements: ['fire', 'plant'],
-      fireStage: 1,
+      fireStage: 2,
       plantStage: 1,
       shelterStage: 2,
+      animalStage: 2,
       humanStage: 1,
       population: 1,
       isCold: false,
     });
     expect(hasSproutPlot(snapshot.world)).toBe(true);
     expect(hasUpgradedHut(snapshot.world)).toBe(true);
+    expect(hasCookingFire(snapshot.world)).toBe(true);
+    expect(hasCaredForAnimal(snapshot.world)).toBe(true);
     // Population is unchanged and WorldState has no animal-count, fence, pond or shrine field to change.
     expect(snapshot.world.population).toBe(1);
     expect(Object.keys(snapshot.world).sort()).toEqual(
-      ['fireStage', 'humanStage', 'isCold', 'plantStage', 'population', 'selectedElements', 'shelterStage', 'turn'],
+      ['animalStage', 'fireStage', 'humanStage', 'isCold', 'plantStage', 'population', 'selectedElements', 'shelterStage', 'turn'],
     );
   });
 
@@ -154,7 +166,12 @@ describe('Turn 2 completion', () => {
     const effects = new Map(PLANT_LIFE_WAVES.map((wave) => [wave.id, wave.complete(base)]));
     expect(effects.get('sprout-plot-appears')).toEqual({ ...base, plantStage: 1 });
     expect(effects.get('shelter-levels-up')).toEqual({ ...base, shelterStage: 2 });
-    for (const id of PLANT_IDS.filter((id) => id !== 'sprout-plot-appears' && id !== 'shelter-levels-up')) {
+    // The fire levels up from 1 to 2 (the same fire, not a second one).
+    expect(effects.get('cooking-starts')).toEqual({ ...base, fireStage: 2 });
+    // The one animal levels up from 1 to 2; population and everything else is untouched.
+    expect(effects.get('animal-eats')).toEqual({ ...base, animalStage: 2 });
+    const persistent = ['sprout-plot-appears', 'shelter-levels-up', 'cooking-starts', 'animal-eats'];
+    for (const id of PLANT_IDS.filter((id) => !persistent.includes(id))) {
       expect(effects.get(id)).toEqual(base);
     }
   });
@@ -178,6 +195,28 @@ describe('Turn 2 completion', () => {
     expect(hasUpgradedHut(world())).toBe(true);
     expect(game.snapshot().activeWave?.id).toBe('cooking-starts');
     expect(game.snapshot().phase).toBe('playing');
+
+    // Cooking: the fire is still the campfire until the cooking Wave completes.
+    const cooking = PLANT_LIFE_WAVES[5].durationMs;
+    game.advance(cooking - 1);
+    expect(hasCookingFire(world())).toBe(false);
+    expect(world().fireStage).toBe(1);
+    game.advance(1);
+    expect(hasCookingFire(world())).toBe(true);
+    expect(world().fireStage).toBe(2);
+    expect(hasCaredForAnimal(world())).toBe(false);
+
+    // Feeding: the animal is still wild until the feeding Wave completes; then it is cared for, still one.
+    const feeding = PLANT_LIFE_WAVES[6].durationMs;
+    expect(game.snapshot().activeWave?.id).toBe('animal-eats');
+    game.advance(feeding - 1);
+    expect(hasCaredForAnimal(world())).toBe(false);
+    expect(world().animalStage).toBe(1);
+    game.advance(1);
+    expect(hasCaredForAnimal(world())).toBe(true);
+    expect(world().animalStage).toBe(2);
+    expect(world().population).toBe(1);
+    expect(game.snapshot().phase).toBe('completed');
   });
 
   it('plays Turn 1 first: Turn 2 does not disturb the Turn 1 end state', () => {
@@ -187,7 +226,14 @@ describe('Turn 2 completion', () => {
       game.advance(TURN2_MS);
       return game.snapshot().world;
     })();
-    expect({ ...turn2, plantStage: turn1.plantStage, shelterStage: turn1.shelterStage, selectedElements: turn1.selectedElements }).toEqual(turn1);
+    expect({
+      ...turn2,
+      plantStage: turn1.plantStage,
+      shelterStage: turn1.shelterStage,
+      fireStage: turn1.fireStage,
+      animalStage: turn1.animalStage,
+      selectedElements: turn1.selectedElements,
+    }).toEqual(turn1);
   });
 });
 
@@ -252,6 +298,8 @@ describe('Turn 2 logical clock', () => {
     game.advance(1_000_000);
     expect(applied).toEqual(PLANT_IDS);
     expect(game.snapshot().world.shelterStage).toBe(2);
+    expect(game.snapshot().world.fireStage).toBe(2);
+    expect(game.snapshot().world.animalStage).toBe(2);
   });
 
   function playBothTurns(speed: number, realStepMs: number) {

@@ -1,6 +1,6 @@
-import { HUMAN_ASSETS, HUMAN_SPRITE_SCALE } from './humanAssets';
+import { HUMAN_ASSETS } from './humanAssets';
 import type { Point } from './layout';
-import { WORLD_ASSETS, type WorldAsset } from './worldAssets';
+import { FIRE_ASSET, WORLD_ASSETS, type WorldAsset } from './worldAssets';
 
 // Runtime art for Turn 2 (🌱). The seven animation PNGs are the supplied
 // turn2_assets_review_v2.zip files, added byte-for-byte; the hut is derived from
@@ -24,15 +24,22 @@ export const TURN2_FRAME_SIZE = 512;
 
 // --- Plot: the supplied composite farm-work art (human + sprout plot in one PNG).
 // The plot's ground point on the island; every farm frame is anchored to it.
-// Lower part of the island at about the animal's height, off the central growth
-// space and off the fire-to-plot walking lane.
-const PLOT_PLACEMENT: Point = { x: 720, y: 812 };
+// Left-middle grass terrace at about the animal's height (the Turn 2 Visual
+// Reference), above the hut and clear of the central growth space.
+const PLOT_PLACEMENT: Point = { x: 330, y: 745 };
+
+// The farm frames draw the Human much smaller on their 512px canvas than the
+// approved Human PNGs do (head about 97 px wide against about 200-220 px), so the
+// composite needs a larger scale for the Human to look the same size in game. 0.22
+// puts the farm Human's head at about 22 design px, matching the approved idle and
+// walk Humans at HUMAN_SPRITE_SCALE (measured by a test; see turn2Assets.test.ts).
+// The approved Human sprite scale itself is unchanged.
+export const FARM_BASE_SCALE = 0.22;
 
 const FARM_COMMON = {
   width: TURN2_FRAME_SIZE,
   height: TURN2_FRAME_SIZE,
-  // The composite art is drawn at the human figure's own scale.
-  baseScale: HUMAN_SPRITE_SCALE,
+  baseScale: FARM_BASE_SCALE,
   placementSpace: 'island',
   placement: PLOT_PLACEMENT,
   dir: FARM_ASSET_DIR,
@@ -50,13 +57,15 @@ export const FARM_WATER_FRAME: Turn2Frame = {
   groundAnchor: { x: 280, y: 479 },
 };
 
-// --- Cooking pot, beside the campfire on the sand. Same scale family as the fire.
+// --- Cooking fire: the campfire levelled up. It stands on the campfire's own
+// ground point and replaces it (never beside it). Scale 0.22 gives its stone ring
+// the same ~56 design px width as the campfire's.
 const POT_COMMON = {
   width: TURN2_FRAME_SIZE,
   height: TURN2_FRAME_SIZE,
-  baseScale: 0.2,
+  baseScale: 0.22,
   placementSpace: 'island',
-  placement: { x: 535, y: 985 },
+  placement: FIRE_ASSET.placement,
   dir: TURN2_WORLD_ASSET_DIR,
 } as const satisfies Omit<Turn2Frame, 'textureKey' | 'filename' | 'groundAnchor'>;
 
@@ -65,8 +74,8 @@ export const COOK_STEAM_FRAMES = [
   { ...POT_COMMON, textureKey: 'cook-steam-2', filename: 'cook_pot_steam2.png', groundAnchor: { x: 278, y: 479 } },
 ] as const satisfies readonly Turn2Frame[];
 
-// --- The one animal eating: replaces the grazing art at the animal's own ground
-// point. The frames carry a bowl of greens and a baked-in caption (accepted).
+// --- The one animal, levelled up to eating: replaces the grazing art at the animal's
+// own ground point (never beside it). The frames carry a bowl of greens and a baked-in caption (accepted).
 const ANIMAL_EAT_COMMON = {
   width: TURN2_FRAME_SIZE,
   height: TURN2_FRAME_SIZE,

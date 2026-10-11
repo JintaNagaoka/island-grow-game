@@ -337,7 +337,9 @@ describe('fire visual', () => {
       expect(fire.visible).toBe(true);
       // Established idle: neutral scale; nothing but the texture frame flickers.
       expect(fire.scale).toBe(1);
-      expect(Object.keys(fire).sort()).toEqual(['burst', 'frame', 'scale', 'seconds', 'visible']);
+      // `alpha` (always 1 here) exists only for the Turn 2 cooking level-up fade-out.
+      expect(fire.alpha).toBe(1);
+      expect(Object.keys(fire).sort()).toEqual(['alpha', 'burst', 'frame', 'scale', 'seconds', 'visible']);
       expect(fire.frame).toBe(Math.floor(snapshot.clockMs / FIRE_FRAME_INTERVAL_MS) % 2);
       frames.push(fire.frame);
     }

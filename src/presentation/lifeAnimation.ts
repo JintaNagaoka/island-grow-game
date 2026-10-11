@@ -1,7 +1,7 @@
 import type { SliceSnapshot } from '../game/sliceGame';
 import { PLANT_LIFE_WAVES, type WaveId } from '../game/waves';
-import { hasSproutPlot, hasUpgradedHut } from '../game/worldState';
-import { clamp01, easeOutBack, stillPose, walkingPose, type HumanPose } from './animation';
+import { hasCaredForAnimal, hasCookingFire, hasSproutPlot, hasUpgradedHut } from '../game/worldState';
+import { clamp01, easeOutBack, levelUpBlend, stillPose, walkingPose, type HumanPose } from './animation';
 import { walkRoute } from './humanWalk';
 import { LAYOUT } from './layout';
 import {
@@ -27,17 +27,10 @@ const waveOrder = (id: WaveId): number => PLANT_WAVE_IDS.indexOf(id);
 export const loopFrame = (timeMs: number): 0 | 1 =>
   (Math.floor(Math.max(0, timeMs) / TURN2_FRAME_DURATION_MS) % 2) as 0 | 1;
 
-const smoothstep = (from: number, to: number, value: number): number => {
-  const t = clamp01((value - from) / (to - from));
-  return t * t * (3 - 2 * t);
-};
-
 function activePlantWave(snapshot: SliceSnapshot) {
   const wave = snapshot.activeWave;
   return wave !== null && waveOrder(wave.id) >= 0 ? wave : null;
 }
-
-const hasCompleted = (snapshot: SliceSnapshot, id: WaveId): boolean => snapshot.completedWaves.includes(id);
 
 export interface LifeHuman {
   readonly pose: HumanPose;
@@ -115,14 +108,14 @@ export interface ShelterVisual {
 export function computeShelterVisual(snapshot: SliceSnapshot): ShelterVisual {
   const wave = snapshot.activeWave;
   if (wave?.id === 'shelter-levels-up') {
-    const p = wave.progress;
+    const blend = levelUpBlend(wave.progress);
     return {
-      shelterAlpha: 1 - smoothstep(0.35, 0.8, p),
-      shelterScale: 1 + 0.06 * smoothstep(0, 0.8, p),
-      hutAlpha: smoothstep(0.2, 0.65, p),
-      hutScale: 0.88 + 0.12 * easeOutBack(p / 0.7),
-      glow: Math.sin(Math.PI * p),
-      sparkle: p,
+      shelterAlpha: blend.oldAlpha,
+      shelterScale: blend.oldScale,
+      hutAlpha: blend.newAlpha,
+      hutScale: blend.newScale,
+      glow: blend.glow,
+      sparkle: blend.sparkle,
     };
   }
   const upgraded = hasUpgradedHut(snapshot.world);
@@ -136,33 +129,69 @@ export function computeShelterVisual(snapshot: SliceSnapshot): ShelterVisual {
   };
 }
 
-export interface PotVisual {
+export interface CookingFireVisual {
   readonly visible: boolean;
+  readonly alpha: number;
   readonly scale: number;
   // Which cook_steam frame to show.
   readonly frame: 0 | 1;
   readonly frameTextureKey: string;
+  readonly glow: number;
+  readonly sparkle: number | null;
 }
 
-export function computePotVisual(snapshot: SliceSnapshot): PotVisual {
+// The campfire levels up into the cooking fire at the campfire's own ground point:
+// the campfire (computeFireVisual) swells and fades while this grows in; afterwards
+// only this remains. The two are never independent objects.
+export function computeCookingFireVisual(snapshot: SliceSnapshot): CookingFireVisual {
   const frame = loopFrame(snapshot.clockMs);
   const base = { frame, frameTextureKey: COOK_STEAM_FRAMES[frame].textureKey };
-  if (snapshot.activeWave?.id === 'cooking-starts') {
-    return { ...base, visible: true, scale: easeOutBack(snapshot.activeWave.progress / 0.6) };
+  const wave = snapshot.activeWave;
+  if (wave?.id === 'cooking-starts') {
+    const blend = levelUpBlend(wave.progress);
+    return { ...base, visible: blend.newAlpha > 0, alpha: blend.newAlpha, scale: blend.newScale, glow: blend.glow, sparkle: blend.sparkle };
   }
-  if (hasCompleted(snapshot, 'cooking-starts')) return { ...base, visible: true, scale: 1 };
-  return { ...base, visible: false, scale: 0 };
+  if (hasCookingFire(snapshot.world)) return { ...base, visible: true, alpha: 1, scale: 1, glow: 0, sparkle: null };
+  return { ...base, visible: false, alpha: 0, scale: 1, glow: 0, sparkle: null };
 }
 
-export interface AnimalEatVisual {
-  // True once the animal is feeding; its grazing art is then replaced.
-  readonly eating: boolean;
+export interface AnimalVisual {
+  // The wild animal art (grazing): fades and swells slightly as it levels up.
+  readonly wildAlpha: number;
+  readonly wildScale: number;
+  // The eating art: grows in from the same ground point. Still the one animal.
+  readonly eatAlpha: number;
+  readonly eatScale: number;
   readonly frame: 0 | 1;
   readonly frameTextureKey: string;
+  readonly glow: number;
+  readonly sparkle: number | null;
 }
 
-export function computeAnimalEatVisual(snapshot: SliceSnapshot): AnimalEatVisual {
+export function computeAnimalVisual(snapshot: SliceSnapshot): AnimalVisual {
   const frame = loopFrame(snapshot.clockMs);
-  const eating = snapshot.activeWave?.id === 'animal-eats' || hasCompleted(snapshot, 'animal-eats');
-  return { eating, frame, frameTextureKey: ANIMAL_EAT_FRAMES[frame].textureKey };
+  const base = { frame, frameTextureKey: ANIMAL_EAT_FRAMES[frame].textureKey };
+  const wave = snapshot.activeWave;
+  if (wave?.id === 'animal-eats') {
+    const blend = levelUpBlend(wave.progress);
+    return {
+      ...base,
+      wildAlpha: blend.oldAlpha,
+      wildScale: blend.oldScale,
+      eatAlpha: blend.newAlpha,
+      eatScale: blend.newScale,
+      glow: blend.glow,
+      sparkle: blend.sparkle,
+    };
+  }
+  const caredFor = hasCaredForAnimal(snapshot.world);
+  return {
+    ...base,
+    wildAlpha: caredFor ? 0 : 1,
+    wildScale: 1,
+    eatAlpha: caredFor ? 1 : 0,
+    eatScale: 1,
+    glow: 0,
+    sparkle: null,
+  };
 }

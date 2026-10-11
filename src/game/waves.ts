@@ -44,10 +44,11 @@ export const FIRE_WARMING_WAVES: readonly Wave[] = [
 
 const beats = (count: number): number => Math.round(count * BEAT_MS);
 
-// Turn 2: the plant event (🌱 after Turn 1). Only the plot and the shelter
-// level-up are persistent WorldState; the farm work, cooking and feeding Waves
-// are presentation beats whose order the Wave sequence itself guarantees.
-// Population stays 1 and nothing else (animal count, fences, ponds) changes.
+// Turn 2: the plant event (🌱 after Turn 1). The persistent WorldState changes are
+// the sprout plot, the shelter→hut, fire→cooking fire and animal→cared-for level-ups;
+// the walk and farm-work Waves are presentation beats whose order the Wave sequence
+// itself guarantees. Population stays 1 and nothing else (animal count, fences,
+// ponds) changes.
 export const PLANT_LIFE_WAVES: readonly Wave[] = [
   {
     // The human walks from the fire to the plot site. No persistent change.
@@ -77,13 +78,15 @@ export const PLANT_LIFE_WAVES: readonly Wave[] = [
     complete: (world) => ({ ...world, shelterStage: 2 }),
   },
   {
+    // The campfire levels up into a cooking fire (the same fire, not a second one).
     id: 'cooking-starts',
     durationMs: beats(PLANT_WAVE_BEATS.cookingStarts),
-    complete: (world) => world,
+    complete: (world) => ({ ...world, fireStage: 2 }),
   },
   {
+    // The one animal levels up from wild to cared-for. No second animal, fence or breeding.
     id: 'animal-eats',
     durationMs: beats(PLANT_WAVE_BEATS.animalEats),
-    complete: (world) => world,
+    complete: (world) => ({ ...world, animalStage: 2 }),
   },
 ];

@@ -17,7 +17,7 @@ export const WAVE_DURATIONS_MS = {
 // play-review decision.
 export const BEAT_MS = 60_000 / 97;
 export const PLANT_WAVE_BEATS = {
-  humanWalksToPlot: 4,
+  humanWalksToPlot: 3,
   sproutPlotAppears: 1.5,
   humanWatersPlot: 2,
   humanHarvestsPlot: 2,

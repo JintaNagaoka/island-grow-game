@@ -6,10 +6,10 @@ import { WAVE_DURATIONS_MS } from '../game/timing';
 import { computeFireVisual, computeHumanPose } from './animation';
 import { LAYOUT } from './layout';
 import {
-  computeAnimalEatVisual,
+  computeAnimalVisual,
+  computeCookingFireVisual,
   computeFarmVisual,
   computeLifeHuman,
-  computePotVisual,
   computeShelterVisual,
   loopFrame,
 } from './lifeAnimation';
@@ -56,8 +56,8 @@ describe('before Turn 2', () => {
       const snapshot = game.snapshot();
       expect(computeLifeHuman(snapshot)).toBeNull();
       expect(computeFarmVisual(snapshot).frame).toBeNull();
-      expect(computePotVisual(snapshot).visible).toBe(false);
-      expect(computeAnimalEatVisual(snapshot).eating).toBe(false);
+      expect(computeCookingFireVisual(snapshot).visible).toBe(false);
+      expect(computeAnimalVisual(snapshot)).toMatchObject({ wildAlpha: 1, eatAlpha: 0, glow: 0, sparkle: null });
       expect(computeShelterVisual(snapshot)).toMatchObject({ shelterAlpha: 1, hutAlpha: 0, glow: 0, sparkle: null });
     }
   });
@@ -84,10 +84,12 @@ describe('Turn 2 sequence', () => {
     // Walking: approved walk frames, the view following the leg, no cold overlay.
     const walking = computeLifeHuman(inWave('human-walks-to-plot', 0.3));
     expect(walking?.pose.walk).not.toBeNull();
-    expect(walking?.pose.asset).toMatch(/^human-walk-(up|right)-/);
+    expect(walking?.pose.asset).toMatch(/^human-walk-up-/);
     expect(walking?.pose.coldOverlay).toBe(false);
     const late = computeLifeHuman(inWave('human-walks-to-plot', 0.6));
-    expect(late?.pose.walk?.direction).toBe('right');
+    // Later legs head left along the free lane to the plot's lower left, then up to it.
+    expect(['up', 'left']).toContain(late?.pose.walk?.direction);
+    expect(computeLifeHuman(inWave('human-walks-to-plot', 0.75))?.pose.walk?.direction).toBe('left');
     // Arrival: the approved idle, at the plot, not walking.
     const arrived = computeLifeHuman(inWave('human-walks-to-plot', 0.999));
     expect(arrived?.pose.walk).toBeNull();
@@ -102,10 +104,10 @@ describe('Turn 2 sequence', () => {
     expect(computeLifeHuman(snapshot)?.pose).toMatchObject({ x: step.x, y: step.y });
   });
 
-  it('keeps the fire burning at full size while Turn 2 plays (no replay of the Wave-1 grow-in)', () => {
-    for (const wave of PLANT_LIFE_WAVES) {
+  it('keeps the campfire burning at full size until the cooking level-up (no replay of the Wave-1 grow-in)', () => {
+    for (const id of ['human-walks-to-plot', 'sprout-plot-appears', 'human-waters-plot', 'human-harvests-plot', 'shelter-levels-up']) {
       for (const fraction of [0, 0.5]) {
-        expect(computeFireVisual(inWave(wave.id, fraction))).toMatchObject({ visible: true, scale: 1, burst: null });
+        expect(computeFireVisual(inWave(id, fraction))).toMatchObject({ visible: true, alpha: 1, scale: 1, burst: null });
       }
     }
   });
@@ -189,47 +191,135 @@ describe('Turn 2 sequence', () => {
     }
   });
 
-  it('brings the cooking pot in with a pop, then steams: cook_pot_steam1 <-> steam2 every 300 ms', () => {
-    expect(computePotVisual(inWave('shelter-levels-up', 0.99)).visible).toBe(false);
-    const early = computePotVisual(inWave('cooking-starts', 0.1));
-    const late = computePotVisual(inWave('cooking-starts', 0.9));
-    expect(early.visible).toBe(true);
-    expect(early.scale).toBeLessThan(late.scale);
-    expect(late.scale).toBeCloseTo(1, 1);
-    for (const ms of [0, 150, 299, 300, 599, 600]) {
-      const snapshot = turn2At(startOf('cooking-starts') + ms).snapshot();
-      const pot = computePotVisual(snapshot);
-      expect(pot.frameTextureKey).toBe(COOK_STEAM_FRAMES[loopFrame(snapshot.clockMs)].textureKey);
+  it('levels the campfire up into the cooking fire at the same ground point: swell, cross-fade, glow, sparkles', () => {
+    const fractions = [0, 0.1, 0.25, 0.4, 0.55, 0.7, 0.85, 0.999];
+    const fires = fractions.map((f) => computeFireVisual(inWave('cooking-starts', f)));
+    const cooks = fractions.map((f) => computeCookingFireVisual(inWave('cooking-starts', f)));
+    // Starts as the campfire alone; ends as the cooking fire alone.
+    expect(fires[0]).toMatchObject({ visible: true, alpha: 1, scale: 1 });
+    expect(cooks[0]).toMatchObject({ visible: false, alpha: 0 });
+    expect(cooks[cooks.length - 1].alpha).toBeCloseTo(1, 1);
+    expect(fires[fires.length - 1].alpha).toBeCloseTo(0, 1);
+    // Monotonic hand-over with a moment where both are on screen (one fire developing, not a hard swap).
+    for (let i = 1; i < fractions.length; i += 1) {
+      expect(cooks[i].alpha).toBeGreaterThanOrEqual(cooks[i - 1].alpha);
+      expect(fires[i].alpha).toBeLessThanOrEqual(fires[i - 1].alpha);
     }
-    expect(computePotVisual(inWave('animal-eats', 0.5))).toMatchObject({ visible: true, scale: 1 });
+    expect(fires.some((f, i) => f.alpha > 0.2 && cooks[i].alpha > 0.2)).toBe(true);
+    // Campfire swells slightly; cooking fire grows in from a little smaller; glow peaks mid-way.
+    expect(Math.max(...fires.map((f) => f.scale))).toBeGreaterThan(1);
+    expect(Math.max(...fires.map((f) => f.scale))).toBeLessThan(1.1);
+    expect(cooks[0].scale).toBeLessThan(1);
+    expect(Math.max(...cooks.map((c) => c.glow))).toBeGreaterThan(0.9);
+    expect(cooks.every((c) => c.sparkle !== null)).toBe(true);
+    // Same ground point: the cooking fire art is anchored on the campfire's.
+    expect(LAYOUT.cookingFire).toEqual(LAYOUT.fire);
   });
 
-  it('has the one animal eat: eat1 <-> eat2 every 300 ms, only from the feeding Wave on', () => {
-    expect(computeAnimalEatVisual(inWave('cooking-starts', 0.99)).eating).toBe(false);
+  it('shows only the cooking fire once the fire has levelled up, steaming steam1 <-> steam2 every 300 ms', () => {
+    // Before the level-up: only the campfire.
+    for (const id of ['shelter-levels-up']) {
+      const snapshot = inWave(id, 0.99);
+      expect(computeCookingFireVisual(snapshot).visible).toBe(false);
+      expect(computeFireVisual(snapshot).visible).toBe(true);
+    }
+    // After: only the cooking fire, in every later moment.
+    for (const [id, f] of [['animal-eats', 0.1], ['animal-eats', 0.9]] as const) {
+      const snapshot = inWave(id, f);
+      expect(computeFireVisual(snapshot).visible).toBe(false);
+      expect(computeCookingFireVisual(snapshot)).toMatchObject({ visible: true, alpha: 1, scale: 1, glow: 0, sparkle: null });
+    }
+    for (const ms of [0, 150, 299, 300, 599, 600]) {
+      const snapshot = turn2At(startOf('animal-eats') + ms).snapshot();
+      expect(computeCookingFireVisual(snapshot).frameTextureKey).toBe(COOK_STEAM_FRAMES[loopFrame(snapshot.clockMs)].textureKey);
+    }
+  });
+
+  it('never shows the campfire and the cooking fire as two independent fires, at any moment of Turn 2', () => {
+    const game = turn2At(0);
+    for (let t = 0; t <= TURN2_MS + 500; t += 20) {
+      const snapshot = game.snapshot();
+      const fire = computeFireVisual(snapshot);
+      const cook = computeCookingFireVisual(snapshot);
+      const fireOn = fire.visible && fire.alpha > 0;
+      const cookOn = cook.visible && cook.alpha > 0;
+      if (fireOn && cookOn) {
+        // Only inside the cooking level-up Wave, as a cross-fade: their opacities trade off.
+        expect(snapshot.activeWave?.id).toBe('cooking-starts');
+        expect(fire.alpha + cook.alpha).toBeLessThan(1.5);
+        expect(Math.min(fire.alpha, cook.alpha)).toBeLessThan(1);
+      } else {
+        expect(fireOn || cookOn).toBe(true);
+      }
+      game.advance(20);
+    }
+    const done = game.snapshot();
+    expect(computeFireVisual(done).visible).toBe(false);
+    expect(computeCookingFireVisual(done)).toMatchObject({ visible: true, alpha: 1 });
+  });
+
+  it('levels the one animal up from wild to eating: same ground point, cross-fade, glow, sparkles', () => {
+    expect(computeAnimalVisual(inWave('cooking-starts', 0.99))).toMatchObject({ wildAlpha: 1, eatAlpha: 0 });
+    const fractions = [0, 0.1, 0.25, 0.4, 0.55, 0.7, 0.85, 0.999];
+    const visuals = fractions.map((f) => computeAnimalVisual(inWave('animal-eats', f)));
+    expect(visuals[0]).toMatchObject({ wildAlpha: 1, eatAlpha: 0 });
+    expect(visuals[visuals.length - 1].eatAlpha).toBeCloseTo(1, 1);
+    expect(visuals[visuals.length - 1].wildAlpha).toBeCloseTo(0, 1);
+    for (let i = 1; i < visuals.length; i += 1) {
+      expect(visuals[i].eatAlpha).toBeGreaterThanOrEqual(visuals[i - 1].eatAlpha);
+      expect(visuals[i].wildAlpha).toBeLessThanOrEqual(visuals[i - 1].wildAlpha);
+    }
+    expect(visuals.some((v) => v.wildAlpha > 0.2 && v.eatAlpha > 0.2)).toBe(true);
+    expect(Math.max(...visuals.map((v) => v.wildScale))).toBeGreaterThan(1);
+    expect(Math.max(...visuals.map((v) => v.wildScale))).toBeLessThan(1.1);
+    expect(visuals[0].eatScale).toBeLessThan(1);
+    expect(Math.max(...visuals.map((v) => v.glow))).toBeGreaterThan(0.9);
+    expect(visuals.every((v) => v.sparkle !== null)).toBe(true);
+    // Eating art alternates eat1 <-> eat2 every 300 ms of the logical clock.
     for (const ms of [0, 100, 300, 450, 600, 1200]) {
       const snapshot = turn2At(startOf('animal-eats') + ms).snapshot();
-      const eat = computeAnimalEatVisual(snapshot);
-      expect(eat.eating).toBe(true);
-      expect(eat.frameTextureKey).toBe(ANIMAL_EAT_FRAMES[loopFrame(snapshot.clockMs)].textureKey);
+      expect(computeAnimalVisual(snapshot).frameTextureKey).toBe(ANIMAL_EAT_FRAMES[loopFrame(snapshot.clockMs)].textureKey);
     }
+  });
+
+  it('is never two animals: outside the level-up exactly one of the wild and eating art shows, and it stays one animal', () => {
+    const game = turn2At(0);
+    let sawBoth = false;
+    for (let t = 0; t <= TURN2_MS + 500; t += 20) {
+      const snapshot = game.snapshot();
+      const animal = computeAnimalVisual(snapshot);
+      const wildOn = animal.wildAlpha > 0;
+      const eatOn = animal.eatAlpha > 0;
+      expect(wildOn || eatOn).toBe(true);
+      if (wildOn && eatOn) {
+        sawBoth = true;
+        expect(snapshot.activeWave?.id).toBe('animal-eats');
+      }
+      expect(snapshot.world.population).toBe(1);
+      game.advance(20);
+    }
+    expect(sawBoth).toBe(true);
+    expect(computeAnimalVisual(game.snapshot())).toMatchObject({ wildAlpha: 0, eatAlpha: 1, glow: 0, sparkle: null });
   });
 
   it('keeps every element quietly looping after Turn 2 completes', () => {
     const game = turn2At(TURN2_MS + 1);
     expect(game.snapshot().phase).toBe('completed');
     const seen = { farm: new Set<string>(), pot: new Set<string>(), eat: new Set<string>() };
+    expect(computeFireVisual(game.snapshot()).visible).toBe(false);
     for (let i = 0; i < 20; i += 1) {
       game.advance(100);
       const snapshot = game.snapshot();
       expect(computeShelterVisual(snapshot)).toMatchObject({ hutAlpha: 1, shelterAlpha: 0 });
       expect(computeLifeHuman(snapshot)?.alpha).toBe(0);
-      expect(computePotVisual(snapshot)).toMatchObject({ visible: true, scale: 1 });
-      expect(computeAnimalEatVisual(snapshot).eating).toBe(true);
+      expect(computeCookingFireVisual(snapshot)).toMatchObject({ visible: true, alpha: 1, scale: 1 });
+      expect(computeFireVisual(snapshot).visible).toBe(false);
+      expect(computeAnimalVisual(snapshot)).toMatchObject({ wildAlpha: 0, eatAlpha: 1 });
       const farm = computeFarmVisual(snapshot);
       expect(farm).toMatchObject({ alpha: 1, scale: 1 });
       seen.farm.add(farm.frame?.textureKey ?? 'none');
-      seen.pot.add(computePotVisual(snapshot).frameTextureKey);
-      seen.eat.add(computeAnimalEatVisual(snapshot).frameTextureKey);
+      seen.pot.add(computeCookingFireVisual(snapshot).frameTextureKey);
+      seen.eat.add(computeAnimalVisual(snapshot).frameTextureKey);
     }
     expect([...seen.farm].sort()).toEqual(['farm-harvest-1', 'farm-harvest-2']);
     expect(seen.pot.size).toBe(2);
@@ -244,8 +334,9 @@ describe('Turn 2 visuals follow the logical clock only', () => {
       life: computeLifeHuman(snapshot),
       farm: { ...farm, frame: farm.frame?.textureKey ?? null },
       shelter: computeShelterVisual(snapshot),
-      pot: computePotVisual(snapshot),
-      eat: computeAnimalEatVisual(snapshot),
+      fire: computeFireVisual(snapshot),
+      cook: computeCookingFireVisual(snapshot),
+      animal: computeAnimalVisual(snapshot),
     };
   }
 
@@ -287,7 +378,7 @@ describe('Turn 2 visuals follow the logical clock only', () => {
   it('never compares stage numbers: the Turn 2 presentation asks semantic questions only', () => {
     for (const file of ['lifeAnimation.ts', 'IslandScene.ts', 'turn2Assets.ts']) {
       const source = readFileSync(new URL(file, import.meta.url), 'utf8');
-      expect(source, file).not.toMatch(/plantStage|shelterStage/);
+      expect(source, file).not.toMatch(/plantStage|shelterStage|animalStage|fireStage/);
     }
   });
 });

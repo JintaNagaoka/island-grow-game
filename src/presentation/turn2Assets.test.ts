@@ -12,6 +12,7 @@ import {
   ANIMAL_EAT_FRAMES,
   COOK_STEAM_FRAMES,
   FARM_ASSET_DIR,
+  FARM_BASE_SCALE,
   FARM_HARVEST_FRAMES,
   FARM_WATER_FRAME,
   FARM_WATER_HUMAN_FEET,
@@ -23,7 +24,7 @@ import {
   TURN2_WORLD_ASSET_DIR,
   type Turn2Frame,
 } from './turn2Assets';
-import { FIRE_FRAMES, WORLD_ASSET_LIST, WORLD_ASSETS, groundOrigin, type WorldAsset } from './worldAssets';
+import { FIRE_ASSET, FIRE_FRAMES, WORLD_ASSET_LIST, WORLD_ASSETS, groundOrigin, type WorldAsset } from './worldAssets';
 import { PLANT_LIFE_WAVES } from '../game/waves';
 
 const ROOT = new URL('../../', import.meta.url);
@@ -147,9 +148,11 @@ describe('Turn 2 supplied animation PNGs', () => {
     expect(ANIMAL_EAT_FRAMES.map((f) => f.groundAnchor)).toEqual([{ x: 239, y: 450 }, { x: 311, y: 450 }]);
     expect(COOK_STEAM_FRAMES.map((f) => f.groundAnchor)).toEqual([{ x: 254, y: 479 }, { x: 278, y: 479 }]);
     for (const frame of [...FARM_HARVEST_FRAMES, FARM_WATER_FRAME]) {
-      expect(frame).toMatchObject({ baseScale: HUMAN_SPRITE_SCALE, placementSpace: 'island', placement: { x: 720, y: 812 } });
+      expect(frame).toMatchObject({ baseScale: 0.22, placementSpace: 'island', placement: { x: 330, y: 745 } });
+      expect(frame.baseScale).toBe(FARM_BASE_SCALE);
     }
-    for (const frame of COOK_STEAM_FRAMES) expect(frame).toMatchObject({ baseScale: 0.2, placement: { x: 535, y: 985 } });
+    // The cooking fire is the campfire levelled up: the campfire's own ground point.
+    for (const frame of COOK_STEAM_FRAMES) expect(frame).toMatchObject({ baseScale: 0.22, placement: FIRE_ASSET.placement });
     for (const frame of ANIMAL_EAT_FRAMES) {
       expect(frame).toMatchObject({ baseScale: 0.27, placement: WORLD_ASSETS.animal.placement });
     }
@@ -446,7 +449,7 @@ const union = (boxes: readonly Box[]): Box => ({
 });
 
 const PLOT_BOX = union([...FARM_HARVEST_FRAMES, FARM_WATER_FRAME].map((frame) => visibleBox(frame, fileBytes(frame), LAYOUT.plot)));
-const POT_BOX = union(COOK_STEAM_FRAMES.map((frame) => visibleBox(frame, fileBytes(frame), LAYOUT.pot)));
+const COOK_BOX = union(COOK_STEAM_FRAMES.map((frame) => visibleBox(frame, fileBytes(frame), LAYOUT.cookingFire)));
 const HUT_BOX = visibleBox(HUT_ASSET, fileBytes(HUT_ASSET), LAYOUT.hut);
 
 const island = readPng(readFileSync(new URL('public/assets/world/initial-turn1/island-base.png', ROOT)));
@@ -486,12 +489,15 @@ function routeSamples(): { x: number; y: number }[] {
 }
 
 describe('Turn 2 layout (360x640 and 390x844 share the 720x1280 design space)', () => {
-  it('puts the plot low on the island at about the animal’s height, on grass, above the UI', () => {
-    expect(LAYOUT.plot.y).toBeGreaterThan(LAYOUT.animal.y);
-    expect(LAYOUT.plot.y - LAYOUT.animal.y).toBeLessThan(150);
-    expect(LAYOUT.plot.y).toBeGreaterThan(LAYOUT.island.top + (LAYOUT.island.bottom - LAYOUT.island.top) * 0.3);
+  it('puts the plot on the left-middle terrace at about the animal’s height, on grass, above the UI', () => {
+    // Left of the island's centre line, level with the animal (the Turn 2 Visual Reference).
+    expect(LAYOUT.plot.x).toBeLessThan(LAYOUT.island.x);
+    expect(LAYOUT.plot.x).toBeLessThan(LAYOUT.animal.x);
+    expect(Math.abs(LAYOUT.plot.y - LAYOUT.animal.y)).toBeLessThan(60);
+    // Above the hut and the fire (the lower-left living area), not down on the beach.
+    expect(LAYOUT.plot.y).toBeLessThan(LAYOUT.hut.y - 100);
     expect(PLOT_BOX.bottom).toBeLessThan(LAYOUT.ui.panelTop);
-    expect(PLOT_BOX.right).toBeLessThan(LAYOUT.island.right);
+    expect(PLOT_BOX.left).toBeGreaterThan(LAYOUT.island.left);
     for (const frame of [...FARM_HARVEST_FRAMES, FARM_WATER_FRAME]) {
       const box = visibleBox(frame, fileBytes(frame), LAYOUT.plot);
       for (const corner of [[box.left, box.bottom], [box.right, box.bottom], [box.left, box.top], [box.right, box.top]]) {
@@ -499,14 +505,17 @@ describe('Turn 2 layout (360x640 and 390x844 share the 720x1280 design space)', 
       }
     }
     expect(groundAt(toIslandPx(LAYOUT.plot).x, toIslandPx(LAYOUT.plot).y)).toBe('grass');
+    for (const box of [HUT_BOX, ANIMAL_REACH, FIRE_BOX]) expect(overlaps(PLOT_BOX, box)).toBe(false);
   });
 
   it('keeps the plot out of the central and front growth spaces and off the walking route', () => {
-    for (const space of LAYOUT.growthSpaces) expect(overlaps(PLOT_BOX, space)).toBe(false);
-    // Until the human is within a few steps of the plot (where it becomes part of the composite art).
+    expect(LAYOUT.growthSpaces.filter((space) => overlaps(PLOT_BOX, space)).map((space) => space.id)).toEqual([]);
+    // Until the human is within a few steps of the plot (where it becomes part of the composite art):
+    // the walk approaches from the lower left and never crosses the plot itself.
     for (const point of routeSamples()) {
-      if (Math.hypot(point.x - LAYOUT.plotHuman.x, point.y - LAYOUT.plotHuman.y) < 25) continue;
-      expect(overlaps(humanBox(point), PLOT_BOX)).toBe(false);
+      if (Math.hypot(point.x - LAYOUT.plotHuman.x, point.y - LAYOUT.plotHuman.y) < 40) continue;
+      // Feet, not the whole 62 px-tall body box: the walker may pass just below the plot's corner.
+      expect(overlaps({ left: point.x - 8, right: point.x + 8, top: point.y - 3, bottom: point.y + 3 }, PLOT_BOX) ? point : null).toBeNull();
     }
     // Standing at the plot: the human is part of the composite art, beside the plot, not on it.
     expect(LAYOUT.plotHuman.x).toBeLessThan(LAYOUT.plot.x);
@@ -529,16 +538,32 @@ describe('Turn 2 layout (360x640 and 390x844 share the 720x1280 design space)', 
     }
   });
 
-  it('puts the pot on the sand beside the fire, clear of the fire, hut, plot, animal and the walking route', () => {
-    expect(standable(LAYOUT.pot, 12)).toBe(true);
-    expect(LAYOUT.pot.x).toBeGreaterThan(LAYOUT.fire.x);
-    expect(LAYOUT.pot.x - LAYOUT.fire.x).toBeLessThan(110);
-    expect(Math.abs(LAYOUT.pot.y - LAYOUT.fire.y)).toBeLessThan(30);
-    expect(POT_BOX.bottom).toBeLessThan(LAYOUT.ui.panelTop);
-    for (const box of [FIRE_BOX, HUT_BOX, PLOT_BOX, ANIMAL_REACH, ...LAYOUT.growthSpaces]) expect(overlaps(POT_BOX, box)).toBe(false);
-    for (const point of routeSamples()) expect(overlaps(humanBox(point), POT_BOX)).toBe(false);
+  it('puts the cooking fire exactly on the campfire’s ground point: it replaces the campfire, it is not a second object', () => {
+    expect(LAYOUT.cookingFire).toEqual(LAYOUT.fire);
+    expect(COOK_STEAM_FRAMES.map((frame) => frame.placement)).toEqual([FIRE_ASSET.placement, FIRE_ASSET.placement]);
+    expect(COOK_STEAM_FRAMES.map((frame) => frame.placementSpace)).toEqual(['island', 'island']);
+    // No separate pot placement exists any more.
+    expect(Object.keys(LAYOUT)).not.toContain('pot');
+    // Its stone ring is about the campfire's width (a level-up of the same fire, not a bigger or smaller one).
+    const ring = (png: PngImage): number => {
+      let [left, right] = [png.width, -1];
+      for (let y = Math.floor(png.height * 0.85); y < png.height; y += 1) {
+        for (let x = 0; x < png.width; x += 1) {
+          if (alphaAt(png, x, y) < 128) continue;
+          [left, right] = [Math.min(left, x), Math.max(right, x)];
+        }
+      }
+      return right - left + 1;
+    };
+    const campfireRing = ring(readPng(readFileSync(new URL('public/assets/world/initial-turn1/fire-stage1-a.png', ROOT)))) * FIRE_ASSET.baseScale;
+    for (const frame of COOK_STEAM_FRAMES) {
+      const cookRing = ring(readPng(fileBytes(frame))) * frame.baseScale;
+      expect(Math.abs(cookRing - campfireRing) / campfireRing).toBeLessThan(0.35);
+    }
+    expect(COOK_BOX.bottom).toBeLessThan(LAYOUT.ui.panelTop);
+    for (const box of [PLOT_BOX, ANIMAL_REACH, ...LAYOUT.growthSpaces]) expect(overlaps(COOK_BOX, box)).toBe(false);
     for (const x of [LAYOUT.humanStart.x, LAYOUT.humanWarm.x]) {
-      expect(overlaps({ left: x - 8, right: x + 8, top: LAYOUT.humanStart.y - 3, bottom: LAYOUT.humanStart.y + 3 }, POT_BOX)).toBe(false);
+      expect(overlaps({ left: x - 8, right: x + 8, top: LAYOUT.humanStart.y - 3, bottom: LAYOUT.humanStart.y + 3 }, COOK_BOX)).toBe(false);
     }
   });
 
@@ -557,7 +582,7 @@ describe('Turn 2 layout (360x640 and 390x844 share the 720x1280 design space)', 
     }
   });
 
-  it('walks from the fire to the plot over walkable ground, clear of the fire, shelter, animal and pot', () => {
+  it('walks from the fire to the plot over walkable ground, clear of the fire, shelter and animal', () => {
     const route = LAYOUT.humanPlotRoute;
     expect(route[0]).toEqual(LAYOUT.humanWarm);
     expect(route[route.length - 1]).toEqual(LAYOUT.plotHuman);
@@ -570,7 +595,6 @@ describe('Turn 2 layout (360x640 and 390x844 share the 720x1280 design space)', 
     for (const point of routeSamples()) {
       expect(standable(point, 4)).toBe(true);
       expect(overlaps(humanBox(point), ANIMAL_REACH)).toBe(false);
-      expect(overlaps(humanBox(point), POT_BOX)).toBe(false);
       // The feet (2 px either side of the ground point, 1 px up and down) never land on an opaque
       // shelter or fire pixel. The gap is narrow: the 22 px body is squeezed between them for a moment.
       for (let dx = -2; dx <= 2; dx += 1) {
@@ -588,6 +612,94 @@ describe('Turn 2 layout (360x640 and 390x844 share the 720x1280 design space)', 
     const duration = walkRouteDurationMs(LAYOUT.humanPlotRoute);
     expect(duration).toBeLessThan(PLANT_LIFE_WAVES[0].durationMs);
     expect(PLANT_LIFE_WAVES[0].durationMs - duration).toBeLessThan(900);
+  });
+});
+
+// --- Human scale ---------------------------------------------------------
+
+// Apparent head diameter (PNG px) of a Human drawn on a 512px canvas, estimated from
+// the width of the head's outline 16 rows below the top of the figure: for a circle of
+// diameter D that chord is 2*sqrt(16*(D-16)), so D = 16 + chord^2/64. The measure uses
+// only the topmost rows (head, never the plot or props) so it works on every
+// Human frame, including the farm frames.
+function headDiameter(png: PngImage): number {
+  let top = 0;
+  while (top < png.height && !Array.from({ length: png.width }, (_, x) => alphaAt(png, x, top)).some((a) => a >= 128)) top += 1;
+  const row = top + 16;
+  let [left, right] = [png.width, -1];
+  for (let x = 0; x < png.width; x += 1) {
+    if (alphaAt(png, x, row) < 128) continue;
+    [left, right] = [Math.min(left, x), Math.max(right, x)];
+  }
+  const chord = right - left + 1;
+  return 16 + (chord * chord) / 64;
+}
+
+describe('Human scale in the farm frames', () => {
+  const humanPng = (name: string): PngImage => readPng(readFileSync(new URL(`public/assets/human/${name}`, ROOT)));
+  const idleHead = headDiameter(humanPng('idle.png')) * HUMAN_SPRITE_SCALE;
+  const walkHead = headDiameter(humanPng('walk/human-walk-right-stand.png')) * HUMAN_SPRITE_SCALE;
+  // The approved Humans' on-screen head, in design px: the idle and walk art differ a little.
+  const approvedHead = (idleHead + walkHead) / 2;
+
+  it('keeps the approved Human sprite scale and art untouched', () => {
+    expect(HUMAN_SPRITE_SCALE).toBe(0.1);
+    expect(HUMAN_ASSETS.idle.normal).toMatchObject({ textureKey: 'idle', groundAnchorX: 255, groundAnchorY: 479 });
+    // The approved Humans are about 20-25 design px across the head.
+    expect(idleHead).toBeGreaterThan(18);
+    expect(idleHead).toBeLessThan(28);
+    expect(walkHead).toBeGreaterThan(16);
+    expect(walkHead).toBeLessThan(26);
+  });
+
+  it.each([...FARM_HARVEST_FRAMES, FARM_WATER_FRAME])(
+    '$textureKey: the Human inside the frame is as large on screen as the approved Human (within 10%)',
+    (frame) => {
+      const head = headDiameter(readPng(fileBytes(frame))) * frame.baseScale;
+      expect(Math.abs(head - approvedHead) / approvedHead).toBeLessThan(0.1);
+    },
+  );
+
+  it('would have been far too small at the previous scale (the regression this guards)', () => {
+    for (const frame of [...FARM_HARVEST_FRAMES, FARM_WATER_FRAME]) {
+      const head = headDiameter(readPng(fileBytes(frame))) * HUMAN_SPRITE_SCALE;
+      expect(head / approvedHead).toBeLessThan(0.6);
+    }
+  });
+
+  it('shares one scale across the farm frames, and the water frame matches the idle Human it alternates with', () => {
+    for (const frame of [...FARM_HARVEST_FRAMES, FARM_WATER_FRAME]) expect(frame.baseScale).toBe(FARM_BASE_SCALE);
+    const waterHead = headDiameter(readPng(fileBytes(FARM_WATER_FRAME))) * FARM_BASE_SCALE;
+    expect(Math.abs(waterHead - idleHead) / idleHead).toBeLessThan(0.15);
+  });
+
+  it('makes the plot a plot: much larger than before, and its Human still beside it, not on it', () => {
+    const plotWidth = (PLOT_BOX.right - PLOT_BOX.left);
+    expect(plotWidth).toBeGreaterThan(50);
+    expect(plotWidth).toBeLessThan(80);
+  });
+});
+
+// --- Visual Reference ------------------------------------------------------
+
+describe('Turn 2 Visual Reference (kept unchanged)', () => {
+  const REFERENCE = new URL('art-source/turn2/visual-reference-turn2-end.jpg', ROOT);
+  it('is the supplied 720x1280 RGB baseline JPEG, byte for byte', () => {
+    const jpeg = readFileSync(REFERENCE);
+    expect(sha256(jpeg)).toBe('eb27ba21e6b70a6df91830a9562f78ce956a9152af29c714d74a244b2223c455');
+    expect([jpeg[0], jpeg[1]]).toEqual([0xff, 0xd8]);
+    let sof = -1;
+    for (let i = 2; i < jpeg.length - 1 && sof < 0; i += 1) if (jpeg[i] === 0xff && jpeg[i + 1] === 0xc0) sof = i;
+    expect(sof).toBeGreaterThan(0); // baseline (SOF0)
+    const u16 = (offset: number): number => (jpeg[offset] << 8) | jpeg[offset + 1];
+    // height, width, 3 components (RGB/YCbCr, no alpha), 8-bit precision.
+    expect([u16(sof + 5), u16(sof + 7), jpeg[sof + 9], jpeg[sof + 4]]).toEqual([1280, 720, 3, 8]);
+  });
+
+  it('is a design reference only: the runtime never loads it', () => {
+    const scene = readFileSync(new URL('src/presentation/IslandScene.ts', ROOT), 'utf8');
+    expect(scene).not.toMatch(/visual-reference|art-source/);
+    expect(existsSync(new URL('public/assets/visual-reference-turn2-end.jpg', ROOT))).toBe(false);
   });
 });
 

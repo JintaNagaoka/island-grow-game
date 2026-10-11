@@ -35,17 +35,17 @@ nvm を使う場合は、リポジトリのルートで `nvm install` と `nvm u
 
 ### Turn 2（🌱）のプレイ確認
 
-Turn 1 が完了すると 🌱 だけが選べるようになります（Turn 1 の完了前、再生中、Turn 2 の完了後は選べません）。🌱 をタップすると入力がロックされ、約 9.9 秒（97 BPM の 16 拍）で次の Wave が一度だけ進みます。
+Turn 1 が完了すると 🌱 だけが選べるようになります（Turn 1 の完了前、再生中、Turn 2 の完了後は選べません）。🌱 をタップすると入力がロックされ、約 9.3 秒（97 BPM の 15 拍）で次の Wave が一度だけ進みます。
 
-1. `human-walks-to-plot`: 小人が火のそばから右の草地の畑予定地へ歩く（承認済み4方向歩行。雨よけの右脚と火の間のすき間を通って上へ、そのあと火の上を右へ）
+1. `human-walks-to-plot`: 小人が火のそばから左中段の草地の畑予定地へ歩く（承認済み4方向歩行。雨よけの右脚と火の間のすき間を通って上へ、雨よけの屋根と畑の間の空き地を左へ進み、畑の左下から着く）
 2. `sprout-plot-appears`: 複合農作業画像の中の「芽の一区画」がポップインする（`plantStage` が 1 になる）
 3. `human-waters-plot`: `farm_water`（既存の承認済み idle ↔ `human_farm_water1`、300 ms/フレーム）
 4. `human-harvests-plot`: `farm_harvest`（`human_farm_harvest1` ↔ `human_farm_harvest2`、300 ms/フレーム）
 5. `shelter-levels-up`: 雨よけが膨らみながら薄れ、同じ接地点から小屋が現れる（淡い光と小さなきらめき。新規画像は生成していません。`shelterStage` が 2 になる）
-6. `cooking-starts`: 火の右隣に調理鍋が現れ、湯気（`cook_pot_steam1` ↔ `steam2`）が続く
-7. `animal-eats`: 動物 1 頭が餌を食べる（`animal_eat1` ↔ `eat2`）
+6. `cooking-starts`: 既存の焚き火が膨らみながら薄れ、同じ接地点で調理の火（`cook_pot_steam1` ↔ `steam2`）へレベルアップする（鍋を隣に置くのではなく、焚き火の置き換え。完了時に `fireStage` が 1 → 2 になり、以後は調理の火だけが表示される）
+7. `animal-eats`: 既存の動物 1 頭が、同じ接地点で餌を食べる姿（`animal_eat1` ↔ `eat2`）へレベルアップする（動物は 1 頭のまま。完了時に `animalStage` が 1 → 2 になる）
 
-完了後、🌱 が「✓ 選択済み」になり、畑の収穫アニメーション・鍋の湯気・動物の食事が控えめに続きます。人口は 1 人のまま、動物も 1 頭のままで、柵・繁殖・池・水路・祠は出ません。2 人目の小人は別 Issue です。
+どのレベルアップ（小屋・調理の火・動物）も、論理クロックから導く短い「入れ替え」演出（旧い絵が少し膨らんで薄れ、新しい絵が同じ接地点から現れる。淡い光と小さなきらめき）で、Wave の完了条件はアニメーションの完了ではありません。完了後、🌱 が「✓ 選択済み」になり、畑の収穫アニメーション・調理の火の湯気・動物の食事が控えめに続きます。人口は 1 人のまま、動物も 1 頭のままで、柵・繁殖・池・水路・祠は出ません。2 人目の小人は別 Issue です。
 
 上下左右の歩行確認用に、開発サーバーでのみ `/?humanWalkPreview` を開くと、小人が右→下→左→上へ歩き続けるレビュー用ループを表示します（🔥 を押すと `isCold` が false になった後の見た目も確認できます）。本番ビルドでは無効です。
 5. 再生中に 🔥 や他のボタンを連打しても、進行が重複したり変わったりしないことを確認します。
@@ -128,11 +128,17 @@ sips -s format png asset-source/initial-turn1/campfire_frame_b_1254.jpg --out as
 
 | texture key | ground anchor (px) | baseScale | 配置（島画像のピクセル座標） |
 | --- | --- | --- | --- |
-| `farm-harvest-1` / `-2` | (289, 479) / (309, 479) | 0.1（人間と同じ） | (720, 812) |
-| `farm-water-1` | (280, 479) | 0.1 | (720, 812) |
-| `cook-steam-1` / `-2` | (254, 479) / (278, 479) | 0.2 | (535, 985) |
+| `farm-harvest-1` / `-2` | (289, 479) / (309, 479) | 0.22 | (330, 745) |
+| `farm-water-1` | (280, 479) | 0.22 | (330, 745) |
+| `cook-steam-1` / `-2` | (254, 479) / (278, 479) | 0.22 | (432, 971)（焚き火の既存の接地点。焚き火を置き換える） |
 | `animal-eat-1` / `-2` | (239, 450) / (311, 450) | 0.27 | (640, 690)（動物の既存の接地点） |
 | `world-hut` | (256, 428) | 0.3 | (282, 960)（雨よけの既存の接地点） |
+
+農作業 3 枚のスケールは 0.22 です。この PNG の小人は 512px キャンバス上で承認済みの idle / 歩行の小人よりも小さく描かれており（頭の幅が約 97 px に対し約 200〜220 px）、0.1 のままだと画面上で約半分の大きさになります。0.22 で頭が約 22 デザイン px となり、承認済みの小人（`HUMAN_SPRITE_SCALE` 0.1。変更していません）と同じ見かけになります（頭の幅を輪郭の弦から推定するテストで 10% 以内を確認）。畑そのものは複合画像の一部なので、リファレンスほど大きくは描けません。
+
+### Visual Reference（Turn 2 完了状態の参照画像）
+
+`art-source/turn2/visual-reference-turn2-end.jpg`（SHA-256 `eb27ba21e6b70a6df91830a9562f78ce956a9152af29c714d74a244b2223c455`、720x1280、RGB、baseline JPEG）を無加工で保持しています。ランタイムでは読み込まず、テストがハッシュと JPEG の寸法を照合します。この参照に基づく変更は、畑の位置（左中段）、農作業の小人の見かけの大きさ、調理（焚き火のレベルアップ）と動物（レベルアップ）の表現だけです。参照に写っている 2 人目の小人は Issue #12、洞窟内の物・水平線と雲・カメラの切り取り・UI の有無は範囲外です。
 
 ### 小屋（`public/assets/world/turn2/hut-stage2.png`）
 
@@ -149,7 +155,7 @@ sips -s format png asset-source/initial-turn1/campfire_frame_b_1254.jpg --out as
 
 - `src/main.ts`: Phaser の起動設定
 - `src/game/`: Phaser に依存しない純粋な TypeScript の WorldState と Game Logic。
-  - `worldState.ts`: `WorldState`（`plantStage`・`shelterStage` を含む）と初期状態、意味判定 `hasSproutPlot` / `hasUpgradedHut`
+  - `worldState.ts`: `WorldState`（`plantStage`・`shelterStage`・`animalStage`、`fireStage` の 2 を含む）と初期状態、意味判定 `hasSproutPlot` / `hasUpgradedHut` / `hasCookingFire` / `hasCaredForAnimal`
   - `waves.ts`: Wave の定義（Turn 1 の `FIRE_WARMING_WAVES`、Turn 2 の `PLANT_LIFE_WAVES`。順序と、各 Wave 完了時の WorldState 変更）
   - `timing.ts`: 再生時間と再生速度の唯一の境界。Wave の長さは再生速度 1x の論理ミリ秒で、将来の一括再生速度変更はここを通ります。
   - `sliceGame.ts`: 入力ガード（🌱 は Turn 1 完了後に一度だけ）、Wave 再生中の入力ロック、論理クロックによる Wave の順次再生、選択可能な要素 `selectableElements`
@@ -158,8 +164,8 @@ sips -s format png asset-source/initial-turn1/campfire_frame_b_1254.jpg --out as
   - `animation.ts`: スナップショットから小人・火・動物のidleの見た目を計算する純粋関数（Phaser 非依存）
   - `worldAssets.ts`: 島・雨よけ・動物・焚き火 2 フレームの PNG のメタデータ（キー、ファイル名、サイズ、接地点、スケール、配置）
   - `turn2Assets.ts`: Turn 2 の PNG（畑 3 フレーム・動物 2 フレーム・鍋 2 フレーム・小屋）のメタデータとアニメーション契約
-  - `lifeAnimation.ts`: スナップショットから Turn 2 の畑・小屋のレベルアップ・鍋・動物の食事の見た目を計算する純粋関数（Phaser 非依存）
+  - `lifeAnimation.ts`: スナップショットから Turn 2 の畑・小屋／調理の火／動物のレベルアップの見た目を計算する純粋関数（Phaser 非依存。共通のレベルアップ演出 `levelUpBlend` は `animation.ts`）
 - `scripts/`: ランタイム世界 PNG を元素材から再生成する Node スクリプト（`deriveWorldAssets.mjs`、小屋用の `deriveHutAsset.mjs`）
-- `art-source/turn2/`: 承認済み小屋 JPEG の正本と、その可逆 PNG 変換
+- `art-source/turn2/`: 承認済み小屋 JPEG の正本とその可逆 PNG 変換、Turn 2 の Visual Reference
 
 依存方向は `src/game/`（WorldState / Game Logic / Wave）→ `src/presentation/`（Phaser）です。`phaser` を import するのは `src/main.ts` と `src/presentation/` の Scene に限り、`src/game/` からは `src/presentation/` を import しません。Phaser のアニメーション完了は状態の成立条件にしておらず、tween やタイマーも使っていません。

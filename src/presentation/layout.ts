@@ -72,22 +72,26 @@ export const LAYOUT = {
   // down, left, then up so each approved view can be checked on a phone screen.
   humanWalkPreview: [onIsland(390, 740), onIsland(540, 740), onIsland(540, 850), onIsland(390, 850)] as readonly Point[],
   fire: assetGround(FIRE_ASSET),
-  // Turn 2. The plot sits on the right grass terrace; the hut stands exactly where
-  // the rain shelter stood; the pot is on the sand just right of the fire.
+  // Turn 2. The plot sits on the left-middle grass terrace above the hut; the hut
+  // stands exactly where the rain shelter stood; the cooking fire is the
+  // campfire's own ground point (it replaces the campfire).
   plot: PLOT,
   plotHuman: PLOT_HUMAN,
   hut: assetGround(HUT_ASSET),
-  pot: assetGround(COOK_STEAM_FRAMES[0]),
+  cookingFire: assetGround(COOK_STEAM_FRAMES[0]),
   // The human's walk from the fire to the plot. The warm-up spot is a pocket
   // between the shelter's right leg and the fire, so the walk first threads up
   // that gap (about 8 design px wide at its narrowest; the feet clear both
-  // silhouettes), then crosses above the fire to the plot.
+  // silhouettes), then goes up the free lane between the shelter's roof and the plot, and
+  // reaches the plot from its lower left.
   humanPlotRoute: [
     HUMAN_WARM,
     onIsland(381, 953),
     onIsland(399, 933),
     onIsland(400, 917),
     onIsland(401, 877),
+    onIsland(360, 782),
+    onIsland(267, 771),
     PLOT_HUMAN,
   ] as readonly Point[],
   // Empty ground on purpose, so later growth has room to appear: the central

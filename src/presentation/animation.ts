@@ -1,4 +1,5 @@
 import type { SliceSnapshot } from '../game/sliceGame';
+import { hasCookingFire } from '../game/worldState';
 import {
   humanAssetOrigin,
   humanWalkTextureKey,
@@ -47,7 +48,9 @@ export interface HumanPose {
 
 export interface FireVisual {
   readonly visible: boolean;
-  // Whole-sprite scale: only the Wave-1 grow-in differs from 1. Established fire
+  // 1 except while the fire is levelling up into the cooking fire and fades out.
+  readonly alpha: number;
+  // Whole-sprite scale: only the Wave-1 grow-in and the cooking level-up swell differ from 1. Established fire
   // never wobbles (no scale, rotation or alpha oscillation of the PNG body).
   readonly scale: number;
   // Which of the two campfire PNG frames to show; flame flicker is this alone.
@@ -71,6 +74,35 @@ const TAU = Math.PI * 2;
 export const FIRE_FRAME_INTERVAL_MS = 220;
 
 export const clamp01 = (value: number): number => Math.min(1, Math.max(0, value));
+export const smoothstep = (from: number, to: number, value: number): number => {
+  const t = clamp01((value - from) / (to - from));
+  return t * t * (3 - 2 * t);
+};
+
+// The shared "level-up" read: the old art swells slightly and fades while the new
+// art grows out of the same ground point, under a short glow and sparkles. A pure
+// function of the Wave's logical progress `p` (0..1); used for the shelter→hut,
+// the fire→cooking fire and the animal→cared-for animal.
+export interface LevelUpBlend {
+  readonly oldAlpha: number;
+  readonly oldScale: number;
+  readonly newAlpha: number;
+  readonly newScale: number;
+  readonly glow: number;
+  readonly sparkle: number;
+}
+
+export function levelUpBlend(p: number): LevelUpBlend {
+  return {
+    oldAlpha: 1 - smoothstep(0.35, 0.8, p),
+    oldScale: 1 + 0.06 * smoothstep(0, 0.8, p),
+    newAlpha: smoothstep(0.2, 0.65, p),
+    newScale: 0.88 + 0.12 * easeOutBack(p / 0.7),
+    glow: Math.sin(Math.PI * p),
+    sparkle: p,
+  };
+}
+
 export function easeOutBack(t: number): number {
   const c1 = 1.70158;
   const c3 = c1 + 1;
@@ -83,18 +115,27 @@ export function computeFireVisual(snapshot: SliceSnapshot): FireVisual {
   const wave = snapshot.activeWave;
   const established = snapshot.world.fireStage >= 1;
   const frame = (Math.floor(snapshot.clockMs / FIRE_FRAME_INTERVAL_MS) % 2) as 0 | 1;
-  if (!wave && !established) return { visible: false, scale: 0, frame, burst: null, seconds };
+  const hidden = { visible: false, alpha: 0, scale: 0, frame, burst: null, seconds };
+  if (!wave && !established) return hidden;
+  // The cooking fire is the same fire levelled up: the campfire PNG is replaced,
+  // never shown beside it (see computeCookingFireVisual in lifeAnimation.ts).
+  if (wave?.id === 'cooking-starts') {
+    const blend = levelUpBlend(wave.progress);
+    return { visible: blend.oldAlpha > 0, alpha: blend.oldAlpha, scale: blend.oldScale, frame, burst: null, seconds };
+  }
+  if (hasCookingFire(snapshot.world)) return hidden;
 
   if (wave?.id === 'fire-appears') {
     return {
       visible: true,
+      alpha: 1,
       scale: easeOutBack(wave.progress / 0.6),
       frame,
       burst: wave.progress,
       seconds,
     };
   }
-  return { visible: true, scale: 1, frame, burst: null, seconds };
+  return { visible: true, alpha: 1, scale: 1, frame, burst: null, seconds };
 }
 
 export function computeEnvironmentMotion(snapshot: SliceSnapshot): EnvironmentMotion {
