@@ -4,9 +4,11 @@ import {
   crop,
   opaqueBounds,
   peelGrayRim,
+  placeBottomCenter,
   removeExteriorBackground,
   removeSpeckles,
   resizeArea,
+  WHITE_BACKGROUND_RULE,
   type RgbaImage,
 } from '../../scripts/worldAssetPixels.mjs';
 import { readPng } from '../testSupport/png';
@@ -131,6 +133,29 @@ describe('world asset background removal', () => {
     const edge = resizeArea(image, 8, 8);
     // The pixel covering one half transparent / one half opaque stays pure red-orange.
     expect(edge.pixels[(2 * 8 + 1) * 4 + 1]).toBe(50);
+  });
+
+  it('removes an exterior white backdrop but keeps enclosed near-white cores and highlights', () => {
+    const image: RgbaImage = { width: 40, height: 40, pixels: new Uint8Array(40 * 40 * 4) };
+    for (let y = 0; y < 40; y += 1) for (let x = 0; x < 40; x += 1) setPixel(image, x, y, [250, 250, 250, 255]);
+    for (let y = 10; y < 30; y += 1) for (let x = 10; x < 30; x += 1) setPixel(image, x, y, [0, 0, 0, 255]); // outline
+    for (let y = 12; y < 28; y += 1) for (let x = 12; x < 28; x += 1) setPixel(image, x, y, [240, 130, 30, 255]);
+    for (let y = 18; y < 22; y += 1) for (let x = 18; x < 22; x += 1) setPixel(image, x, y, [255, 255, 255, 255]); // enclosed core
+    const result = removeExteriorBackground(image, WHITE_BACKGROUND_RULE);
+    expect(alphaAt(result, 2, 2)).toBe(0);
+    expect(alphaAt(result, 38, 20)).toBe(0);
+    expect(alphaAt(result, 20, 20)).toBe(255);
+    expect(alphaAt(result, 11, 20)).toBe(255);
+  });
+
+  it('bottom-center aligns frames of different sizes without scaling', () => {
+    const small: RgbaImage = { width: 4, height: 2, pixels: new Uint8Array(4 * 2 * 4).fill(255) };
+    const placed = placeBottomCenter(small, 8, 6);
+    expect([placed.width, placed.height]).toEqual([8, 6]);
+    expect(alphaAt(placed, 2, 5)).toBe(255);
+    expect(alphaAt(placed, 5, 4)).toBe(255);
+    expect(alphaAt(placed, 1, 5)).toBe(0);
+    expect(alphaAt(placed, 2, 3)).toBe(0);
   });
 
   it('round-trips 8-bit RGBA PNGs losslessly', () => {

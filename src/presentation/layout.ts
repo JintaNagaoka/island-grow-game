@@ -1,5 +1,5 @@
 import { DESIGN_HEIGHT, DESIGN_WIDTH } from './display';
-import { WORLD_ASSETS, type WorldAsset } from './worldAssets';
+import { FIRE_ASSET, WORLD_ASSETS, type WorldAsset } from './worldAssets';
 
 // All layout is expressed as ratios of the 9:16 design resolution so aspect
 // ratio dependence stays in display.ts. World positions are provisional and
@@ -56,7 +56,7 @@ export const LAYOUT = {
   // Dev-only review loop (?humanWalkPreview): a rectangle that walks right,
   // down, left, then up so each approved view can be checked on a phone screen.
   humanWalkPreview: [onIsland(390, 740), onIsland(540, 740), onIsland(540, 850), onIsland(390, 850)] as readonly Point[],
-  fire: assetGround(WORLD_ASSETS.fire),
+  fire: assetGround(FIRE_ASSET),
   // Empty ground on purpose, so later growth has room to appear: the central
   // sand path and the beach in front of it.
   growthSpaces: [

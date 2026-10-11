@@ -35,7 +35,7 @@ nvm を使う場合は、リポジトリのルートで `nvm install` と `nvm u
 
 上下左右の歩行確認用に、開発サーバーでのみ `/?humanWalkPreview` を開くと、小人が右→下→左→上へ歩き続けるレビュー用ループを表示します（🔥 を押すと `isCold` が false になった後の見た目も確認できます）。本番ビルドでは無効です。
 5. 再生中に 🔥 や他のボタンを連打しても、進行が重複したり変わったりしないことを確認します。
-6. 完了後、🔥 が「✓ 選択済み」になり再選択できないこと、火・小人・動物の小さなアイドル動作が続き、箱庭が完全停止しないことを確認します。やり直す場合はページを再読み込みします。
+6. 完了後、🔥 が「✓ 選択済み」になり再選択できないこと、火（2 枚の焚き火画像が約 220 ms ごとに切り替わる。拡大縮小・回転・透明度の揺れはない）・小人・動物の小さなアイドル動作が続き、箱庭が完全停止しないことを確認します。やり直す場合はページを再読み込みします。
 7. ブラウザのコンソールに未処理エラーが出ていないことを確認します（開発サーバーでは `favicon.ico` の 404 のみ出ます）。
 8. ウィンドウの縦横比を変えても、9:16 の画面が中央にフィットして表示されることを確認します。
 
@@ -50,9 +50,19 @@ nvm を使う場合は、リポジトリのルートで `nvm install` と `nvm u
 | `island-base.png` | `island_base_with_cave_tree.png` | 外周につながる市松模様を除去、可視範囲へトリミング | 941x1543 |
 | `shelter-stage1.png` | `shelter_512_transparent.png` | 可視範囲へトリミングのみ | 423x306 |
 | `animal-stage1.png` | `fantasy_creature_provisional.png` | 外周につながる市松模様を除去、トリミング、幅 512 へ縮小 | 512x306 |
-| `fire-stage1.png` | `campfire_provisional.png` | 可視範囲へトリミング、幅 256 へ縮小 | 256x262 |
+| `fire-stage1-a.png` | `campfire_frame_b_1254.png`（供給 JPEG 2 枚目 1254x1254 の PNG 変換） | 外周につながる白背景を除去、石の輪が幅 256 になるよう縮小、下端中央で整列 | 256x263 |
+| `fire-stage1-b.png` | `campfire_frame_a_512.png`（供給 JPEG 1 枚目 512x512 の PNG 変換） | 同上（炎だけが異なる） | 256x263 |
 
 `cave_reference_approved_design.png` は島に洞窟が含まれるため使いません。
+
+焚き火の 2 枚は供給された JPEG（`campfire_frame_a_512.jpg` / `campfire_frame_b_1254.jpg`、SHA-256 `a6425f31…` / `9905c2ad…`）を、元ファイルのまま `asset-source/initial-turn1/` に置いたものです。スクリプトは PNG を読むため、JPEG を可逆な PNG へ変換してから使います（macOS の例）。
+
+```sh
+sips -s format png asset-source/initial-turn1/campfire_frame_a_512.jpg --out asset-source/initial-turn1/campfire_frame_a_512.png
+sips -s format png asset-source/initial-turn1/campfire_frame_b_1254.jpg --out asset-source/initial-turn1/campfire_frame_b_1254.png
+```
+
+白背景の除去は市松模様と同じ外周連結フラッドで、近白（彩度 ≤ 24、輝度 ≥ 232）の画素だけを対象にします（`WHITE_BACKGROUND_RULE`）。黒い輪郭の内側にある近白の炎の芯や石のハイライトは外周につながらないので残ります。縁は混色率の逆算と `peelGrayRim` で処理します。2 枚は同じ縮小率の規則（石の輪の幅 = 256）で拡縮し、`placeBottomCenter` で同じ 256x263 の透明キャンバスの下端中央に置くため、フレームを切り替えても石や接地点は動きません（接地点は両方 (128, 247)）。再生成の確認は `node scripts/deriveWorldAssets.mjs asset-source/initial-turn1 <別ディレクトリ>` を 2 回実行し、出力がバイト単位で一致することで行えます。
 
 再生成手順（Node.js 22 以上。追加依存なし）:
 
@@ -88,7 +98,7 @@ nvm を使う場合は、リポジトリのルートで `nvm install` と `nvm u
 - `src/presentation/`: Phaser に依存するコード（Scene など）。画面比率・サイズ依存の値は `display.ts` と `layout.ts` に集約しています。
   - `IslandScene.ts`: 入力を `SliceGame` に渡し、`SliceGame.snapshot()` から毎フレーム描画するだけの Scene
   - `animation.ts`: スナップショットから小人・火・動物のidleの見た目を計算する純粋関数（Phaser 非依存）
-  - `worldAssets.ts`: 島・雨よけ・動物・火 PNG のメタデータ（キー、ファイル名、サイズ、接地点、スケール、配置）
+  - `worldAssets.ts`: 島・雨よけ・動物・焚き火 2 フレームの PNG のメタデータ（キー、ファイル名、サイズ、接地点、スケール、配置）
 - `scripts/`: ランタイム世界 PNG を元素材から再生成する Node スクリプト（`deriveWorldAssets.mjs`）
 
 依存方向は `src/game/`（WorldState / Game Logic / Wave）→ `src/presentation/`（Phaser）です。`phaser` を import するのは `src/main.ts` と `src/presentation/` の Scene に限り、`src/game/` からは `src/presentation/` を import しません。Phaser のアニメーション完了は状態の成立条件にしておらず、tween やタイマーも使っていません。

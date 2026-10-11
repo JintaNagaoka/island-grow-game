@@ -15,6 +15,11 @@ export const BACKGROUND_RULE = {
   paleBlue: { maxChroma: 62, minBlueLead: 6, minLuma: 120, maxLuma: 225 },
 };
 
+// The white JPEG backdrop of the campfire frames: near-white and near-neutral.
+// Flame cores and stone highlights are brighter inside the artwork too, but they
+// are enclosed by the black outline, so the exterior flood never reaches them.
+export const WHITE_BACKGROUND_RULE = { maxChroma: 24, minLuma: 232, maxLuma: 255 };
+
 const luma = (r, g, b) => 0.299 * r + 0.587 * g + 0.114 * b;
 
 function isBackgroundColor(r, g, b, rule) {
@@ -320,6 +325,23 @@ export function peelGrayRim(image, { passes = 2, maxChroma = 36, minLuma = 150, 
       }
     }
     pixels = next;
+  }
+  return { width, height, pixels };
+}
+
+// Copies `image` onto a transparent width x height canvas, centered horizontally
+// and with its bottom edge on the canvas bottom, so differently sized frames
+// share one contact point. No scaling or distortion.
+export function placeBottomCenter(image, width, height) {
+  if (image.width > width || image.height > height) throw new RangeError('image larger than canvas');
+  const pixels = new Uint8Array(width * height * 4);
+  const left = Math.floor((width - image.width) / 2);
+  const top = height - image.height;
+  for (let y = 0; y < image.height; y += 1) {
+    pixels.set(
+      image.pixels.subarray(y * image.width * 4, (y + 1) * image.width * 4),
+      ((top + y) * width + left) * 4,
+    );
   }
   return { width, height, pixels };
 }

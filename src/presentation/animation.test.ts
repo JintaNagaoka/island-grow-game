@@ -7,9 +7,7 @@ import {
   computeFireVisual,
   computeHumanPose,
   computeWalkPreviewPose,
-  FIRE_ALPHA_DIP,
-  FIRE_MAX_ROTATION,
-  FIRE_MIN_ALPHA,
+  FIRE_FRAME_INTERVAL_MS,
 } from './animation';
 import { humanAssetOrigin, selectHumanAsset, type HumanAnimationState } from './humanAssets';
 import { HUMAN_WALK_SEQUENCE, HUMAN_WALK_SPEED_PX_PER_MS } from './humanWalk';
@@ -325,48 +323,52 @@ describe('fire visual', () => {
     expect(computeFireVisual(game.snapshot()).visible).toBe(true);
   });
 
-  it('keeps flickering from the logical clock after it is established', () => {
-    const game = startedGame();
-    game.advance(WAVE1 + 10);
-    const scales = new Set<number>();
-    for (let i = 0; i < 20; i += 1) {
-      game.advance(17);
-      scales.add(computeFireVisual(game.snapshot()).scale);
-    }
-    expect(scales.size).toBeGreaterThan(10);
-  });
-
-  it('sways and breathes subtly from the logical clock after Turn 1 completes', () => {
+  it('alternates the two campfire frames from the logical clock, with no body wobble', () => {
     const game = startedGame();
     game.advance(WAVE1 + WAVE2 + WAVE3 + 100);
     expect(game.snapshot().phase).toBe('completed');
-    const rotations = new Set<number>();
-    const alphas = new Set<number>();
+    expect(FIRE_FRAME_INTERVAL_MS).toBeGreaterThanOrEqual(180);
+    expect(FIRE_FRAME_INTERVAL_MS).toBeLessThanOrEqual(260);
+    const frames: number[] = [];
     for (let i = 0; i < 400; i += 1) {
       game.advance(17);
-      const fire = computeFireVisual(game.snapshot());
+      const snapshot = game.snapshot();
+      const fire = computeFireVisual(snapshot);
       expect(fire.visible).toBe(true);
-      expect(Math.abs(fire.rotation)).toBeLessThanOrEqual(FIRE_MAX_ROTATION);
-      expect(fire.alpha).toBeGreaterThanOrEqual(FIRE_MIN_ALPHA);
-      expect(fire.alpha).toBeLessThanOrEqual(1);
-      rotations.add(fire.rotation);
-      alphas.add(fire.alpha);
+      // Established idle: neutral scale; nothing but the texture frame flickers.
+      expect(fire.scale).toBe(1);
+      expect(Object.keys(fire).sort()).toEqual(['burst', 'frame', 'scale', 'seconds', 'visible']);
+      expect(fire.frame).toBe(Math.floor(snapshot.clockMs / FIRE_FRAME_INTERVAL_MS) % 2);
+      frames.push(fire.frame);
     }
-    expect(rotations.size).toBeGreaterThan(100);
-    expect(alphas.size).toBeGreaterThan(100);
-    expect(FIRE_MAX_ROTATION).toBeLessThan(0.05);
-    expect(FIRE_ALPHA_DIP).toBeLessThanOrEqual(0.15);
+    expect(new Set(frames)).toEqual(new Set([0, 1]));
+    // Alternates: runs of one frame last about one interval (17 ms steps).
+    let flips = 0;
+    for (let i = 1; i < frames.length; i += 1) if (frames[i] !== frames[i - 1]) flips += 1;
+    expect(flips).toBeGreaterThan(20);
+    expect(flips).toBeLessThan(40);
   });
 
-  it('keeps rotation and alpha neutral while hidden and bounded during the Wave 1 burst', () => {
+  it('is hidden before selection, visible while appearing, and keeps the Wave-1 grow-in only', () => {
     const hidden = computeFireVisual(new SliceGame().snapshot());
-    expect([hidden.rotation, hidden.alpha]).toEqual([0, 0]);
+    expect(hidden.visible).toBe(false);
+    expect(hidden.scale).toBe(0);
     const game = startedGame();
     game.advance(WAVE1 * 0.3);
     const fire = computeFireVisual(game.snapshot());
+    expect(fire.visible).toBe(true);
     expect(fire.burst).not.toBeNull();
-    expect(Math.abs(fire.rotation)).toBeLessThanOrEqual(FIRE_MAX_ROTATION);
-    expect(fire.alpha).toBeGreaterThanOrEqual(FIRE_MIN_ALPHA);
+    expect(fire.scale).toBeGreaterThan(0);
+    game.advance(WAVE1);
+    expect(computeFireVisual(game.snapshot()).scale).toBe(1);
+  });
+
+  it('never mutates game state when computing the fire visual', () => {
+    const game = startedGame();
+    game.advance(WAVE1 + 50);
+    const before = JSON.stringify(game.snapshot());
+    computeFireVisual(game.snapshot());
+    expect(JSON.stringify(game.snapshot())).toBe(before);
   });
 
   it('is playback-speed equivalent for the whole fire visual', () => {

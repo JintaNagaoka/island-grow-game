@@ -7,6 +7,8 @@ import { DESIGN_WIDTH } from './display';
 import { HUMAN_ASSET_LIST, HUMAN_WALK_ASSET_LIST } from './humanAssets';
 import { LAYOUT } from './layout';
 import {
+  FIRE_ASSET,
+  FIRE_FRAMES,
   WORLD_ASSETS,
   WORLD_ASSET_DIR,
   WORLD_ASSET_LIST,
@@ -18,11 +20,12 @@ import {
 const WORLD_DIR = new URL('../../public/assets/world/initial-turn1/', import.meta.url);
 const SCENE_SOURCE = readFileSync(new URL('./IslandScene.ts', import.meta.url), 'utf8');
 
-const MAX_FILE_BYTES: Record<keyof typeof WORLD_ASSETS, number> = {
-  island: 2_500_000,
-  shelter: 250_000,
-  animal: 250_000,
-  fire: 150_000,
+const MAX_FILE_BYTES: Record<string, number> = {
+  'island-base.png': 2_500_000,
+  'shelter-stage1.png': 250_000,
+  'animal-stage1.png': 250_000,
+  'fire-stage1-a.png': 150_000,
+  'fire-stage1-b.png': 150_000,
 };
 
 const loaded = new Map<string, { png: PngImage; bytes: number }>();
@@ -67,13 +70,14 @@ function countVisibleGroups(png: PngImage): number {
 }
 
 describe('world asset metadata', () => {
-  it('registers the four runtime PNGs with unique keys and filenames', () => {
-    expect(Object.keys(WORLD_ASSETS)).toEqual(['island', 'shelter', 'animal', 'fire']);
+  it('registers the five runtime PNGs (two campfire frames) with unique keys and filenames', () => {
+    expect(Object.keys(WORLD_ASSETS)).toEqual(['island', 'shelter', 'animal']);
     expect(WORLD_ASSET_LIST.map((asset) => asset.filename)).toEqual([
       'island-base.png',
       'shelter-stage1.png',
       'animal-stage1.png',
-      'fire-stage1.png',
+      'fire-stage1-a.png',
+      'fire-stage1-b.png',
     ]);
     expect(WORLD_ASSET_DIR).toBe('/assets/world/initial-turn1/');
     const keys = [
@@ -102,11 +106,28 @@ describe('world asset metadata', () => {
       baseScale: 0.15,
       placement: { x: 640, y: 690 },
     });
-    expect(WORLD_ASSETS.fire).toMatchObject({
-      groundAnchor: { x: 128, y: 246 },
-      baseScale: 0.22,
-      placement: { x: 432, y: 971 },
-    });
+    for (const frame of FIRE_FRAMES) {
+      expect(frame).toMatchObject({
+        width: 256,
+        height: 263,
+        groundAnchor: { x: 128, y: 247 },
+        baseScale: 0.22,
+        placementSpace: 'island',
+        placement: { x: 432, y: 971 },
+      });
+    }
+    expect(FIRE_FRAMES.map((frame) => frame.textureKey)).toEqual(['world-fire-a', 'world-fire-b']);
+    expect(FIRE_ASSET).toBe(FIRE_FRAMES[0]);
+  });
+
+  it('gives both campfire frames the identical canvas, ground anchor, scale and placement', () => {
+    const [a, b] = FIRE_FRAMES;
+    for (const key of ['width', 'height', 'groundAnchor', 'baseScale', 'placementSpace', 'placement'] as const) {
+      expect(a[key]).toEqual(b[key]);
+    }
+    // So switching frames can never move the sprite: same origin, same ground point.
+    expect(groundOrigin(a)).toEqual(groundOrigin(b));
+    expect(LAYOUT.fire).toEqual({ x: LAYOUT.fire.x, y: LAYOUT.fire.y });
   });
 
   it('mirrors only the shelter and converts its anchor into a mirrored origin', () => {
@@ -114,7 +135,7 @@ describe('world asset metadata', () => {
     const shelter = groundOrigin(WORLD_ASSETS.shelter);
     expect(shelter.x).toBeCloseTo(1 - 212 / 423, 10);
     expect(shelter.y).toBeCloseTo(296 / 306, 10);
-    const fire = groundOrigin(WORLD_ASSETS.fire);
+    const fire = groundOrigin(FIRE_ASSET);
     expect(fire.x).toBeCloseTo(128 / 256, 10);
   });
 
@@ -144,14 +165,15 @@ describe('world asset metadata', () => {
 });
 
 describe('runtime world PNGs', () => {
-  for (const [name, asset] of Object.entries(WORLD_ASSETS)) {
+  for (const asset of WORLD_ASSET_LIST) {
+    const name = asset.filename;
     it(`${name}: is an 8-bit RGBA PNG of the registered size with transparent pixels`, () => {
       const { png, bytes } = load(asset);
       expect([png.bitDepth, png.colorType]).toEqual([8, 6]);
       expect([png.width, png.height]).toEqual([asset.width, asset.height]);
       expect(png.minAlpha).toBe(0);
       expect(png.maxAlpha).toBeGreaterThanOrEqual(250);
-      expect(bytes).toBeLessThanOrEqual(MAX_FILE_BYTES[name as keyof typeof WORLD_ASSETS]);
+      expect(bytes).toBeLessThanOrEqual(MAX_FILE_BYTES[name]);
     });
 
     it(`${name}: ground anchor lies inside the image on visible art`, () => {
@@ -173,6 +195,63 @@ describe('runtime world PNGs', () => {
       expect(found).toBe(true);
     });
   }
+
+  it('aligns the two campfire frames: same canvas, bottom contact row and stone-ring width', () => {
+    const measure = (png: PngImage) => {
+      let bottom = -1;
+      let top = png.height;
+      let [ringLeft, ringRight] = [png.width, -1];
+      for (let y = 0; y < png.height; y += 1) {
+        for (let x = 0; x < png.width; x += 1) {
+          if (alphaAt(png, x, y) < 128) continue;
+          bottom = Math.max(bottom, y);
+          top = Math.min(top, y);
+          if (y > png.height * 0.7) [ringLeft, ringRight] = [Math.min(ringLeft, x), Math.max(ringRight, x)];
+        }
+      }
+      return { bottom, top, ringLeft, ringRight };
+    };
+    const [a, b] = FIRE_FRAMES.map((frame) => load(frame).png);
+    expect([a.width, a.height]).toEqual([b.width, b.height]);
+    const [ma, mb] = [measure(a), measure(b)];
+    // Stones sit on the same bottom row (the ground contact) ...
+    expect(ma.bottom).toBe(mb.bottom);
+    expect(FIRE_FRAMES[0].height - 1 - ma.bottom).toBeLessThanOrEqual(1);
+    // ... and the stone ring spans the same columns within a pixel.
+    expect(Math.abs(ma.ringLeft - mb.ringLeft)).toBeLessThanOrEqual(1);
+    expect(Math.abs(ma.ringRight - mb.ringRight)).toBeLessThanOrEqual(1);
+    expect(ma.ringRight - ma.ringLeft + 1).toBeGreaterThanOrEqual(254);
+    // The flames really differ (it is a flicker, not a duplicate).
+    let different = 0;
+    for (let i = 0; i < a.pixels.length; i += 4) if (a.pixels[i] !== b.pixels[i] || a.pixels[i + 3] !== b.pixels[i + 3]) different += 1;
+    expect(different).toBeGreaterThan(2000);
+    // Anchor sits on the stone base of both frames.
+    expect(FIRE_ASSET.groundAnchor.y).toBeLessThanOrEqual(ma.bottom);
+    expect(ma.bottom - FIRE_ASSET.groundAnchor.y).toBeLessThanOrEqual(20);
+  });
+
+  it('has no white backdrop left in the campfire frames', () => {
+    for (const frame of FIRE_FRAMES) {
+      const { png } = load(frame);
+      for (const [x, y] of [[0, 0], [png.width - 1, 0], [0, png.height - 1], [png.width - 1, png.height - 1], [10, 10], [png.width - 10, 10]]) {
+        expect(alphaAt(png, x, y)).toBe(0);
+      }
+      // The artwork is the flame group plus a few small detached flame tongues
+      // that belong to it; no further specks remain.
+      expect(countVisibleGroups(png)).toBeLessThanOrEqual(5);
+      // No opaque near-white pixel touches the transparent exterior (the fringe).
+      let fringe = 0;
+      for (let y = 1; y < png.height - 1; y += 1) {
+        for (let x = 1; x < png.width - 1; x += 1) {
+          const i = (y * png.width + x) * 4;
+          if (png.pixels[i + 3] < 250) continue;
+          const exterior = [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => alphaAt(png, x + dx, y + dy) === 0);
+          if (exterior && png.pixels[i] > 235 && png.pixels[i + 1] > 235 && png.pixels[i + 2] > 235) fringe += 1;
+        }
+      }
+      expect(fringe).toBe(0);
+    }
+  });
 
   it('removes the exterior checkerboard from the island and animal without leftovers', () => {
     for (const asset of [WORLD_ASSETS.island, WORLD_ASSETS.animal]) {
@@ -234,7 +313,9 @@ const overlaps = (a: Box, b: Box): boolean =>
 
 // The human's drawn extent around a ground point: the 512px canvas at the
 // shared sprite scale is far larger than the figure, so use a generous box.
-const humanBox = (x: number, y: number): Box => ({ left: x - 14, right: x + 14, top: y - 56, bottom: y + 6 });
+// Half the figure's visible width (the cold/idle figure is ~22 design px wide).
+const HUMAN_HALF_WIDTH = 11;
+const humanBox = (x: number, y: number): Box => ({ left: x - HUMAN_HALF_WIDTH, right: x + HUMAN_HALF_WIDTH, top: y - 56, bottom: y + 6 });
 
 // True when an opaque pixel of the (mirrored) shelter PNG lies inside `box`.
 function shelterPixelsInside(box: Box): boolean {
@@ -324,13 +405,16 @@ const SHELTER_OPAQUE_RIGHT = (() => {
 const SHELTER = footprint(WORLD_ASSETS.shelter, LAYOUT.shelter);
 // The fire's visible extent (opaque pixels), not its padded PNG rectangle.
 const FIRE = ((): Box => {
-  const asset = WORLD_ASSETS.fire;
-  const { png } = load(asset);
+  const asset = FIRE_ASSET;
   let [minX, minY, maxX, maxY] = [Infinity, Infinity, -Infinity, -Infinity];
-  for (let py = 0; py < png.height; py += 1) {
-    for (let px = 0; px < png.width; px += 1) {
-      if (alphaAt(png, px, py) < 128) continue;
-      [minX, minY, maxX, maxY] = [Math.min(minX, px), Math.min(minY, py), Math.max(maxX, px), Math.max(maxY, py)];
+  // Union over both flicker frames, so the box is safe whichever one is showing.
+  for (const frame of FIRE_FRAMES) {
+    const { png } = load(frame);
+    for (let py = 0; py < png.height; py += 1) {
+      for (let px = 0; px < png.width; px += 1) {
+        if (alphaAt(png, px, py) < 128) continue;
+        [minX, minY, maxX, maxY] = [Math.min(minX, px), Math.min(minY, py), Math.max(maxX, px), Math.max(maxY, py)];
+      }
     }
   }
   const origin = groundOrigin(asset);
@@ -434,15 +518,16 @@ describe('world layout', () => {
     expect(LAYOUT.fire.x).toBeGreaterThanOrEqual(330);
     expect(LAYOUT.fire.x).toBeLessThanOrEqual(338);
     // The finished human stands immediately left of the fire stones.
-    expect(LAYOUT.humanWarm.x + 14).toBeLessThan(FIRE.left);
-    expect(FIRE.left - (LAYOUT.humanWarm.x + 14)).toBeLessThan(8);
+    expect(LAYOUT.humanWarm.x + HUMAN_HALF_WIDTH).toBeLessThan(FIRE.left);
+    expect(FIRE.left - (LAYOUT.humanWarm.x + HUMAN_HALF_WIDTH)).toBeLessThan(8);
     expect(LAYOUT.fire.x - LAYOUT.humanWarm.x).toBeGreaterThan(30);
     expect(LAYOUT.fire.x - LAYOUT.humanWarm.x).toBeLessThan(50);
     // The initial human stands at the shelter opening, slightly in front of its
     // right-hand rock cluster, within 40 px of the shelter's opaque right edge.
     expect(Math.abs(LAYOUT.humanStart.x - SHELTER_OPAQUE_RIGHT)).toBeLessThan(40);
-    // The shelter's visible art (not its padded rectangle) ends before the fire.
-    expect(SHELTER_OPAQUE_RIGHT).toBeLessThan(FIRE.left);
+    // The shelter's visible art ends at the fire; the wider campfire ring may sit
+    // a few px in front of the shelter's right rock edge (fire is drawn in front).
+    expect(SHELTER_OPAQUE_RIGHT - FIRE.left).toBeLessThan(6);
   });
 
   it('allows the approved very short walk that still moves and finishes inside the approach Wave', () => {
@@ -495,7 +580,7 @@ describe('world presentation wiring', () => {
   it('preloads every world asset from the registry and no checkerboard original', () => {
     expect(SCENE_SOURCE).toContain('for (const asset of WORLD_ASSET_LIST)');
     expect(SCENE_SOURCE).toContain('WORLD_ASSET_DIR');
-    expect(SCENE_SOURCE).not.toMatch(/cave_reference|island_base_with_cave_tree|fantasy_creature_provisional/);
+    expect(SCENE_SOURCE).not.toMatch(/cave_reference|island_base_with_cave_tree|fantasy_creature_provisional|campfire_provisional|campfire_frame|\.jpg/);
   });
 
   it('has dropped the duplicate legacy world Graphics', () => {

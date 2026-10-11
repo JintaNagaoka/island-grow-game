@@ -13,8 +13,10 @@ import {
   opaqueBounds,
   peelGrayRim,
   removeExteriorBackground,
+  placeBottomCenter,
   removeSpeckles,
   resizeArea,
+  WHITE_BACKGROUND_RULE,
 } from './worldAssetPixels.mjs';
 
 // `maxWidth`/`maxHeight` cap the output size (only ever shrinking); the runtime
@@ -42,13 +44,17 @@ export const DERIVATIONS = [
     padding: 2,
     maxWidth: 512,
   },
-  {
-    source: 'campfire_provisional.png',
-    output: 'fire-stage1.png',
-    removeBackground: false,
-    padding: 0,
-    maxWidth: 256,
-  },
+];
+
+// Two campfire flicker frames. The sources are PNG conversions (lossless decode,
+// e.g. `sips -s format png`) of the supplied JPEGs. Each frame has its white
+// backdrop removed, is trimmed, and is scaled uniformly so its visible stone ring
+// is FIRE_RING_WIDTH wide; both are then bottom-center aligned on one canvas so
+// switching frames never moves the stones or the ground contact point.
+export const FIRE_RING_WIDTH = 256;
+export const FIRE_FRAME_DERIVATIONS = [
+  { source: 'campfire_frame_b_1254.png', output: 'fire-stage1-a.png' },
+  { source: 'campfire_frame_a_512.png', output: 'fire-stage1-b.png' },
 ];
 
 const [sourceArg, outputArg] = process.argv.slice(2);
@@ -78,5 +84,26 @@ for (const step of DERIVATIONS) {
   const sha = createHash('sha256').update(sourceBytes).digest('hex').slice(0, 12);
   console.log(
     `${basename(step.source)} (sha256 ${sha}…) -> ${step.output}: ${image.width}x${image.height}, ${bytes.length} bytes`,
+  );
+}
+
+const fireFrames = FIRE_FRAME_DERIVATIONS.map((step) => {
+  const sourceBytes = readFileSync(join(sourceDir, step.source));
+  let image = removeSpeckles(
+    peelGrayRim(removeExteriorBackground(decodePng(sourceBytes), WHITE_BACKGROUND_RULE)),
+    SPECKLE_AREA,
+  );
+  image = crop(image, opaqueBounds(image, 0));
+  const height = Math.round((image.height * FIRE_RING_WIDTH) / image.width);
+  return { step, sourceBytes, image: resizeArea(image, FIRE_RING_WIDTH, height) };
+});
+const canvasHeight = Math.max(...fireFrames.map((frame) => frame.image.height));
+for (const { step, sourceBytes, image } of fireFrames) {
+  const framed = placeBottomCenter(image, FIRE_RING_WIDTH, canvasHeight);
+  const bytes = encodePng(framed);
+  writeFileSync(join(outputDir, step.output), bytes);
+  const sha = createHash('sha256').update(sourceBytes).digest('hex').slice(0, 12);
+  console.log(
+    `${step.source} (sha256 ${sha}…) -> ${step.output}: ${framed.width}x${framed.height}, ${bytes.length} bytes (frame ${image.width}x${image.height}, bottom-center aligned)`,
   );
 }

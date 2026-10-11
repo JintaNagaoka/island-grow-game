@@ -25,6 +25,8 @@ import {
 import { HUMAN_WALK_ANIMATIONS, planHumanAnimation } from './humanWalk';
 import { LAYOUT } from './layout';
 import {
+  FIRE_ASSET,
+  FIRE_FRAMES,
   WORLD_ASSETS,
   WORLD_ASSET_DIR,
   WORLD_ASSET_LIST,
@@ -229,8 +231,9 @@ export class IslandScene extends Phaser.Scene {
     if (!fire.visible) return;
     const { x, y } = LAYOUT.fire;
     const s = fire.scale;
-    const baseScale = WORLD_ASSETS.fire.baseScale;
-    this.fireSprite.setScale(baseScale * s).setRotation(fire.rotation).setAlpha(fire.alpha);
+    // Texture swap only: every frame has the same size, anchor and scale, so the
+    // stones and contact point never move.
+    this.fireSprite.setTexture(FIRE_FRAMES[fire.frame].textureKey).setScale(FIRE_ASSET.baseScale * s);
 
     glow.fillStyle(0xffbd55, 0.16);
     glow.fillEllipse(x, y + 2, 116 * s, 35 * s);
@@ -359,7 +362,7 @@ export class IslandScene extends Phaser.Scene {
     this.animalShadow = this.add.graphics();
     this.animal = this.addGroundSprite(WORLD_ASSETS.animal, LAYOUT.animal.x, LAYOUT.animal.y);
     this.fireGlow = this.add.graphics().setDepth(LAYOUT.fire.y - 0.5);
-    this.fireSprite = this.addGroundSprite(WORLD_ASSETS.fire, LAYOUT.fire.x, LAYOUT.fire.y)
+    this.fireSprite = this.addGroundSprite(FIRE_FRAMES[0], LAYOUT.fire.x, LAYOUT.fire.y)
       .setDepth(LAYOUT.fire.y + 1)
       .setVisible(false);
     this.fireSparks = this.add.graphics().setDepth(LAYOUT.fire.y + 1.5);

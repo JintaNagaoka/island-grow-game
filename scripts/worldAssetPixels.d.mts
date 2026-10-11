@@ -37,3 +37,5 @@ export function peelGrayRim(
     minTransparentNeighbors?: number;
   },
 ): RgbaImage;
+export const WHITE_BACKGROUND_RULE: BackgroundRule;
+export function placeBottomCenter(image: RgbaImage, width: number, height: number): RgbaImage;

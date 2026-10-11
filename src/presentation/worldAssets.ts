@@ -74,20 +74,35 @@ export const WORLD_ASSETS = {
     placementSpace: 'island',
     placement: { x: 640, y: 690 },
   },
-  // Appears at fireStage 1; the fire's ground point is the base of the stones.
-  fire: {
-    textureKey: 'world-fire',
-    filename: 'fire-stage1.png',
-    width: 256,
-    height: 262,
-    groundAnchor: { x: 128, y: 246 },
-    baseScale: 0.22,
-    placementSpace: 'island',
-    placement: { x: 432, y: 971 },
-  },
 } as const satisfies Record<string, WorldAsset>;
 
-export const WORLD_ASSET_LIST: readonly WorldAsset[] = Object.values(WORLD_ASSETS);
+// The campfire's two flicker frames (stage 1). Both PNGs share one canvas, one
+// ground anchor (the base of the stone ring, bottom-centre) and one visible
+// stone-ring width, so switching texture never moves the stones or the contact
+// point; only the flame differs. Index 0 and 1 alternate on the logical clock.
+const FIRE_FRAME_COMMON = {
+  width: 256,
+  height: 263,
+  groundAnchor: { x: 128, y: 247 },
+  baseScale: 0.22,
+  placementSpace: 'island',
+  placement: { x: 432, y: 971 },
+} as const satisfies Omit<WorldAsset, 'textureKey' | 'filename'>;
+
+export const FIRE_FRAMES = [
+  { ...FIRE_FRAME_COMMON, textureKey: 'world-fire-a', filename: 'fire-stage1-a.png' },
+  { ...FIRE_FRAME_COMMON, textureKey: 'world-fire-b', filename: 'fire-stage1-b.png' },
+] as const satisfies readonly WorldAsset[];
+
+// Appears at fireStage 1. Frame 0 carries the shared metadata for layout.
+export const FIRE_ASSET: WorldAsset = FIRE_FRAMES[0];
+
+export const WORLD_ASSET_LIST: readonly WorldAsset[] = [
+  WORLD_ASSETS.island,
+  WORLD_ASSETS.shelter,
+  WORLD_ASSETS.animal,
+  ...FIRE_FRAMES,
+];
 
 // Bright open-water blue behind the island's transparent margin; sampled from
 // the island's own water so the cut-out edge never reads as a rectangle.
