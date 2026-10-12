@@ -118,3 +118,41 @@ export function walkToward(from: Point, to: Point, elapsedMs: number): WalkStep 
     arrived: false,
   };
 }
+
+// Logical milliseconds to walk the whole route at the fixed ground speed.
+export function walkRouteDurationMs(route: readonly Point[]): number {
+  let distance = 0;
+  for (let i = 1; i < route.length; i += 1) {
+    distance += Math.hypot(route[i].x - route[i - 1].x, route[i].y - route[i - 1].y);
+  }
+  return distance / HUMAN_WALK_SPEED_PX_PER_MS;
+}
+
+// Position after `elapsedMs` of continuous walking along `route` (two or more
+// points) at the same ground speed as walkToward(). Each leg shows the view of its
+// own direction; the final leg ends with walkToward()'s arrival, so the route
+// stops exactly on its last point. The step cycle is driven by the caller's total
+// elapsed time and so continues unbroken across a corner.
+export function walkRoute(route: readonly Point[], elapsedMs: number): WalkStep {
+  let remainingMs = Math.max(0, elapsedMs);
+  for (let i = 1; i < route.length - 1; i += 1) {
+    const from = route[i - 1];
+    const to = route[i];
+    const dx = to.x - from.x;
+    const dy = to.y - from.y;
+    const distance = Math.hypot(dx, dy);
+    const legMs = distance / HUMAN_WALK_SPEED_PX_PER_MS;
+    if (remainingMs >= legMs) {
+      remainingMs -= legMs;
+      continue;
+    }
+    const travelled = HUMAN_WALK_SPEED_PX_PER_MS * remainingMs;
+    return {
+      x: from.x + (dx / distance) * travelled,
+      y: from.y + (dy / distance) * travelled,
+      direction: selectWalkDirection(dx, dy),
+      arrived: false,
+    };
+  }
+  return walkToward(route[route.length - 2], route[route.length - 1], remainingMs);
+}

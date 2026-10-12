@@ -12,6 +12,25 @@ export const WAVE_DURATIONS_MS = {
   humanWarmsUp: 2200,
 } as const;
 
+// Turn 2 Waves are laid out in beats of the 97 BPM design tempo, expressed in
+// logical milliseconds like every other duration here. Final values are a human
+// play-review decision.
+export const BEAT_MS = 60_000 / 97;
+export const PLANT_WAVE_BEATS = {
+  humanWalksToPlot: 3.5,
+  farmExpands: 3,
+  shelterLevelsUp: 2.5,
+  cookingStarts: 1.5,
+  animalEats: 2.5,
+} as const;
+
+// The two farm-work poses are specified in seconds, not beats: water1 for exactly
+// 1.5 s, then harvest2 for exactly 1.5 s (logical milliseconds at 1x).
+export const FARM_WORK_MS = {
+  humanWatersPlot: 1500,
+  humanHarvestsPlot: 1500,
+} as const;
+
 // Upper bound on one frame's real delta so a backgrounded tab does not skip
 // the whole sequence in a single update.
 export const MAX_FRAME_DELTA_MS = 100;

@@ -1,4 +1,16 @@
 import { DESIGN_HEIGHT, DESIGN_WIDTH } from './display';
+import {
+  COOK_STEAM_FRAMES,
+  FARM_BASE_SCALE,
+  FARM_COMPOSITE_PLOT_CENTER_PX,
+  FARM_GRID,
+  FARM_TILE_STEP_PX,
+  FARM_TILE_CENTER_FROM_ANCHOR_PX,
+  FARM_PLOT_TILE,
+  FARM_WATER_FRAME,
+  FARM_WATER_HUMAN_FEET,
+  HUT_ASSET,
+} from './turn2Assets';
 import { FIRE_ASSET, WORLD_ASSETS, type WorldAsset } from './worldAssets';
 
 // All layout is expressed as ratios of the 9:16 design resolution so aspect
@@ -29,6 +41,46 @@ const assetGround = (asset: WorldAsset): Point => {
   return onIsland(asset.placement.x, asset.placement.y);
 };
 
+const HUMAN_WARM = onIsland(373, 971);
+const PLOT = assetGround(FARM_WATER_FRAME);
+// Where the human stands at the plot: its feet in the water-pose art, relative to
+// that frame's ground anchor, at the frame's scale.
+const PLOT_HUMAN: Point = {
+  x: PLOT.x + (FARM_WATER_HUMAN_FEET.x - FARM_WATER_FRAME.groundAnchor.x) * FARM_WATER_FRAME.baseScale,
+  y: PLOT.y + (FARM_WATER_HUMAN_FEET.y - FARM_WATER_FRAME.groundAnchor.y) * FARM_WATER_FRAME.baseScale,
+};
+
+// The expanded farm: the composite plot (human_farm_harvest1) is the first cell of
+// an isometric grid; every other cell holds one standalone four-plant component,
+// spaced out (FARM_GRID.spacing) so grass shows between the patches. The list is in
+// reveal order, growing outward from the composite.
+const FARM_PLOT_TILES: readonly Point[] = (() => {
+  const scale = FARM_PLOT_TILE.baseScale;
+  const step = {
+    x: FARM_TILE_STEP_PX.x * scale * FARM_GRID.spacing,
+    y: FARM_TILE_STEP_PX.y * scale * FARM_GRID.spacing,
+  };
+  const center = {
+    x: PLOT.x + FARM_COMPOSITE_PLOT_CENTER_PX.x * FARM_BASE_SCALE,
+    y: PLOT.y + FARM_COMPOSITE_PLOT_CENTER_PX.y * FARM_BASE_SCALE,
+  };
+  // Cell (0, 0)'s top-face centre: the composite's centre sits at cell (0.5, 0.5).
+  const half = (FARM_GRID.compositeCells - 1) / 2;
+  const origin = { x: center.x - (half + half) * step.x, y: center.y - (half - half) * step.y };
+  const cells: { along: number; across: number }[] = [];
+  for (let along = 0; along < FARM_GRID.along; along += 1) {
+    for (let across = 0; across < FARM_GRID.across; across += 1) {
+      if (along < FARM_GRID.compositeCells && across < FARM_GRID.compositeCells) continue;
+      cells.push({ along, across });
+    }
+  }
+  cells.sort((a, b) => a.along + a.across - (b.along + b.across) || a.across - b.across);
+  return cells.map(({ along, across }) => ({
+    x: origin.x + (along + across) * step.x - FARM_TILE_CENTER_FROM_ANCHOR_PX.x * scale,
+    y: origin.y + (along - across) * step.y - FARM_TILE_CENTER_FROM_ANCHOR_PX.y * scale,
+  }));
+})();
+
 const islandRect = (left: number, top: number, right: number, bottom: number) => {
   const a = onIsland(left, top);
   const b = onIsland(right, bottom);
@@ -52,11 +104,35 @@ export const LAYOUT = {
   // Front: shelter, human, fire on the sand, with the open path kept free.
   shelter: assetGround(WORLD_ASSETS.shelter),
   humanStart: onIsland(346, 971),
-  humanWarm: onIsland(373, 971),
+  humanWarm: HUMAN_WARM,
   // Dev-only review loop (?humanWalkPreview): a rectangle that walks right,
   // down, left, then up so each approved view can be checked on a phone screen.
   humanWalkPreview: [onIsland(390, 740), onIsland(540, 740), onIsland(540, 850), onIsland(390, 850)] as readonly Point[],
   fire: assetGround(FIRE_ASSET),
+  // Turn 2. The plot sits on the left-middle grass terrace above the hut; the hut
+  // stands exactly where the rain shelter stood; the cooking fire is the
+  // campfire's own ground point (it replaces the campfire).
+  plot: PLOT,
+  plotHuman: PLOT_HUMAN,
+  // Ground points (tile anchors) of the standalone plot tiles, in reveal order.
+  farmPlotTiles: FARM_PLOT_TILES,
+  hut: assetGround(HUT_ASSET),
+  cookingFire: assetGround(COOK_STEAM_FRAMES[0]),
+  // The human's walk from the fire to the plot. The warm-up spot is a pocket
+  // between the shelter's right leg and the fire, so the walk first threads up
+  // that gap (about 8 design px wide at its narrowest; the feet clear both
+  // silhouettes), then goes left along the free lane between the shelter's roof and the farm, and
+  // up to the plot from its lower left.
+  humanPlotRoute: [
+    HUMAN_WARM,
+    onIsland(381, 953),
+    onIsland(399, 933),
+    onIsland(400, 917),
+    onIsland(401, 877),
+    onIsland(360, 800),
+    onIsland(326, 741),
+    PLOT_HUMAN,
+  ] as readonly Point[],
   // Empty ground on purpose, so later growth has room to appear: the central
   // sand path and the beach in front of it.
   growthSpaces: [
