@@ -40,7 +40,7 @@ Turn 1 が完了すると 🌱 だけが選べるようになります（Turn 1 
 1. `human-walks-to-plot`: 小人が火のそばから左中段の草地の畑予定地へ歩く（承認済み4方向歩行。雨よけの右脚と火の間のすき間を通って上へ、雨よけの屋根と畑の間の空き地を左へ進み、畑の左下から着く）
 2. `human-waters-plot`: 小人が畑に着いたら、`human_farm_water1` を**ちょうど 1.5 秒（論理時間）連続して**表示する（畑が小さくポップインする。`plantStage` は 0 のまま）
 3. `human-harvests-plot`: `human_farm_harvest2` をちょうど 1.5 秒連続して表示する
-4. `farm-expands`: `human_farm_harvest1` に落ち着き、単独の畑タイル `farm_plot_single.png` が 1 枚ずつ育つように増えて、リファレンスに近い大きさの畑になる（この Wave の完了時に `plantStage` が 1 になり（1 回だけ。2 は使いません）、拡張した畑は以後ずっと残る）
+4. `farm-expands`: `human_farm_harvest1` に落ち着き、単独の四株の畑 `farm-plot-four-plants.png` が 1 枚ずつ育つように増えて、リファレンスに近い大きさの畑になる（この Wave の完了時に `plantStage` が 1 になり（1 回だけ。2 は使いません）、拡張した畑は以後ずっと残る）
 5. `shelter-levels-up`: 雨よけが膨らみながら薄れ、同じ接地点から小屋が現れる（淡い光と小さなきらめき。新規画像は生成していません。`shelterStage` が 2 になる）
 6. `cooking-starts`: 既存の焚き火が膨らみながら薄れ、同じ接地点で調理の火（`cook_pot_steam1` ↔ `steam2`）へレベルアップする（鍋を隣に置くのではなく、焚き火の置き換え。完了時に `fireStage` が 1 → 2 になり、以後は調理の火だけが表示される）
 7. `animal-eats`: 既存の動物 1 頭が、同じ接地点で餌を食べる姿（`animal_eat1` ↔ `eat2`）へレベルアップする（動物は 1 頭のまま。完了時に `animalStage` が 1 → 2 になる）
@@ -129,18 +129,26 @@ sips -s format png asset-source/initial-turn1/campfire_frame_b_1254.jpg --out as
 | --- | --- | --- | --- |
 | `farm-harvest-1` / `-2` | (289, 479) / (309, 479) | 0.22 | (225, 724) |
 | `farm-water-1` | (280, 479) | 0.22 | (225, 724) |
-| `farm-plot-single` | (256, 284) | 0.22 | 複合画像の畑を囲む等角格子（下記） |
+| `farm-plot-four-plants` | (224, 294) | 0.08 | 複合画像の畑を囲む等角格子（下記） |
 | `cook-steam-1` / `-2` | (254, 479) / (278, 479) | 0.22 | (432, 971)（焚き火の既存の接地点。焚き火を置き換える） |
 | `animal-eat-1` / `-2` | (239, 450) / (311, 450) | 0.27 | (640, 690)（動物の既存の接地点） |
 | `world-hut` | (256, 428) | 0.3 | (282, 960)（雨よけの既存の接地点） |
 
 農作業 3 枚のスケールは 0.22 です。この PNG の小人は 512px キャンバス上で承認済みの idle / 歩行の小人よりも小さく描かれており（頭の幅が約 97 px に対し約 200〜220 px）、0.1 のままだと画面上で約半分の大きさになります。0.22 で頭が約 22 デザイン px となり、承認済みの小人（`HUMAN_SPRITE_SCALE` 0.1。変更していません）と同じ見かけになります（頭の幅を輪郭の弦から推定するテストで 10% 以内を確認）。畑そのものは複合画像の一部なので、リファレンスほど大きくは描けません。
 
-### 単独の畑タイル（`public/assets/world/turn2/farm_plot_single.png`）
+### 単独の四株の畑（`public/assets/world/turn2/farm-plot-four-plants.png`）
 
-承認済みの `farm_plot_single.png`（SHA-256 `d1dedfc3ee102ba9e2b0c5b1018b62d45e9e0848417a4246b07581e1c89c138f`、512x512、8-bit RGBA）を、編集・再描画なしでバイト単位のまま追加しています（ランタイムのファイルが正本。テストが SHA-256 を照合します）。接地点は他のフレームと同じ規則（可視範囲の水平中心と下端）で (256, 284) です。
+承認済みの四株の畑 JPEG（SHA-256 `0e070b2341d1406e35cdfa2e07d4f3c9137be0a08ec5a3059ec2573af60cbd02`、1254x1254、RGB baseline、不透明な白背景）を `art-source/turn2/farm-plot-four-plants-source.jpg` に無加工で保持しています。ランタイムでは、小屋と同じ決定的な方法で、外周につながる近白の背景だけを透明化した 8-bit RGBA PNG（448x295）を使います。畑の絵は描き直し・再生成・色の変更をしていません。旧 `farm_plot_single.png`（一株の部品）は削除しました。
 
-タイルは複合画像の畑（2x2 マス）と同じ 0.22 スケールで、等角格子に並べます（`FARM_GRID`: 下右方向 6 x 上右方向 7 マス。複合画像が占める最初の 2x2 マスを除く 38 マスに 1 枚ずつ。隣のマスまでは `FARM_TILE_STEP_PX` = (43, 21.5) px）。位置は `layout.ts` の `farmPlotTiles`（複合画像の畑の中心から計算）で、全体の幅・高さがリファレンスの畑（約 140x90 デザイン px）に近くなります。右端は中央の将来用スペースの手前に収め、雨よけ・小屋の屋根との間に歩ける空きを残しています。
+1. JPEG を可逆な PNG に変換します（macOS: `sips -s format png art-source/turn2/farm-plot-four-plants-source.jpg --out art-source/turn2/farm-plot-four-plants-source-decoded.png`）。この PNG（SHA-256 `466d01a472ebf998fe7e270bddc217fba376e6bbda2717294316587e5ab1f464`）もリポジトリに置き、テストで照合します。
+2. `node scripts/deriveFarmPlotAsset.mjs art-source/turn2/farm-plot-four-plants-source-decoded.png public/assets/world/turn2/farm-plot-four-plants.png`
+   - `removeExteriorBackground(image, WHITE_BACKGROUND_RULE)`（外周から 4 近傍で連結する近白画素だけを透明にする。不透明な画素の色は原本のまま。縁は部分アルファ）、可視範囲へトリミング、幅 448 まで面積平均で縮小。
+
+出力はピクセル単位で決定的です（ランタイム PNG のデコード後ピクセルの SHA-256 `4dbf044d775f9d2b55e5217c63e3aeb73c5dc4180cd1afc24a353e5524d0dcc9` をテストで固定し、スクリプトで再導出して一致を確認します。穴・白いにじみがないことも検査します）。
+
+植物の大きさは、人間の農作業フレームに描かれている植物と見かけが同じになるようにしています。株ごとの葉＋濃緑の輪郭の面積は、この絵で約 10,200 px²、`human_farm_harvest1/2` の畑の植物（4 株で約 5,800 px²）で約 1,450 px² です（0.22 で描画）。画面上で同じ大きさにするには 0.22 x sqrt(1450 / 10200) = 0.083 で、0.08 を使います（人間・複合画像の 0.22 は変更していません。テストで画面上の株の面積が 25% 以内で一致することを確認）。
+
+並べ方: 複合画像の畑（4 株）を最初のマスとする 2 x 2 の等角格子で、残りの 3 マスに四株の畑を 1 枚ずつ置きます（`FARM_GRID`: 下右方向 2 x 上右方向 2。複合画像を除く**ちょうど 3 枚**。合計 16 株で、リファレンスの約 12 株に近い）。隣り合う畑の間隔は接する距離（`FARM_TILE_STEP_PX` = (226, 124) px）の 2 倍（`FARM_GRID.spacing`）で、土の畑の間に草地が見えます（リファレンスの、株ごとの土の区画が草地で分かれている見た目）。株の大きさ（0.08）は変えず、枚数ではなく間隔で全体の広がりをリファレンスの畑（約 138x88 デザイン px）に寄せています。位置は `layout.ts` の `farmPlotTiles`（複合画像の畑の中心から計算。追加順は複合画像に近い順）。右端は中央の将来用スペースの手前、雨よけ・小屋の屋根との間に歩ける空きを残します。リファレンスの株の間隔より広めで、広がりはリファレンスよりやや小さくなります（株を増やさないため）。
 
 ### Visual Reference（Turn 2 完了状態の参照画像）
 
@@ -171,7 +179,7 @@ sips -s format png asset-source/initial-turn1/campfire_frame_b_1254.jpg --out as
   - `worldAssets.ts`: 島・雨よけ・動物・焚き火 2 フレームの PNG のメタデータ（キー、ファイル名、サイズ、接地点、スケール、配置）
   - `turn2Assets.ts`: Turn 2 の PNG（畑 3 フレーム・動物 2 フレーム・鍋 2 フレーム・小屋）のメタデータとアニメーション契約
   - `lifeAnimation.ts`: スナップショットから Turn 2 の畑・小屋／調理の火／動物のレベルアップの見た目を計算する純粋関数（Phaser 非依存。共通のレベルアップ演出 `levelUpBlend` は `animation.ts`）
-- `scripts/`: ランタイム世界 PNG を元素材から再生成する Node スクリプト（`deriveWorldAssets.mjs`、小屋用の `deriveHutAsset.mjs`）
+- `scripts/`: ランタイム世界 PNG を元素材から再生成する Node スクリプト（`deriveWorldAssets.mjs`、小屋用の `deriveHutAsset.mjs`、畑用の `deriveFarmPlotAsset.mjs`）
 - `art-source/turn2/`: 承認済み小屋 JPEG の正本とその可逆 PNG 変換、Turn 2 の Visual Reference
 
 依存方向は `src/game/`（WorldState / Game Logic / Wave）→ `src/presentation/`（Phaser）です。`phaser` を import するのは `src/main.ts` と `src/presentation/` の Scene に限り、`src/game/` からは `src/presentation/` を import しません。Phaser のアニメーション完了は状態の成立条件にしておらず、tween やタイマーも使っていません。

@@ -5,7 +5,8 @@ import {
   FARM_COMPOSITE_PLOT_CENTER_PX,
   FARM_GRID,
   FARM_TILE_STEP_PX,
-  FARM_TILE_TOP_CENTER_ABOVE_ANCHOR_PX,
+  FARM_TILE_CENTER_FROM_ANCHOR_PX,
+  FARM_PLOT_TILE,
   FARM_WATER_FRAME,
   FARM_WATER_HUMAN_FEET,
   HUT_ASSET,
@@ -49,11 +50,16 @@ const PLOT_HUMAN: Point = {
   y: PLOT.y + (FARM_WATER_HUMAN_FEET.y - FARM_WATER_FRAME.groundAnchor.y) * FARM_WATER_FRAME.baseScale,
 };
 
-// The expanded farm: the composite plot (human_farm_harvest1) covers the first 2x2
-// cells of an isometric grid; every other cell holds one standalone plot tile. The
-// list is in reveal order, growing outward from the composite.
+// The expanded farm: the composite plot (human_farm_harvest1) is the first cell of
+// an isometric grid; every other cell holds one standalone four-plant component,
+// spaced out (FARM_GRID.spacing) so grass shows between the patches. The list is in
+// reveal order, growing outward from the composite.
 const FARM_PLOT_TILES: readonly Point[] = (() => {
-  const step = { x: FARM_TILE_STEP_PX.x * FARM_BASE_SCALE, y: FARM_TILE_STEP_PX.y * FARM_BASE_SCALE };
+  const scale = FARM_PLOT_TILE.baseScale;
+  const step = {
+    x: FARM_TILE_STEP_PX.x * scale * FARM_GRID.spacing,
+    y: FARM_TILE_STEP_PX.y * scale * FARM_GRID.spacing,
+  };
   const center = {
     x: PLOT.x + FARM_COMPOSITE_PLOT_CENTER_PX.x * FARM_BASE_SCALE,
     y: PLOT.y + FARM_COMPOSITE_PLOT_CENTER_PX.y * FARM_BASE_SCALE,
@@ -70,8 +76,8 @@ const FARM_PLOT_TILES: readonly Point[] = (() => {
   }
   cells.sort((a, b) => a.along + a.across - (b.along + b.across) || a.across - b.across);
   return cells.map(({ along, across }) => ({
-    x: origin.x + (along + across) * step.x,
-    y: origin.y + (along - across) * step.y + FARM_TILE_TOP_CENTER_ABOVE_ANCHOR_PX * FARM_BASE_SCALE,
+    x: origin.x + (along + across) * step.x - FARM_TILE_CENTER_FROM_ANCHOR_PX.x * scale,
+    y: origin.y + (along - across) * step.y - FARM_TILE_CENTER_FROM_ANCHOR_PX.y * scale,
   }));
 })();
 

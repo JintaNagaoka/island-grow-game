@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { decodePng, encodePng } from '../../scripts/pngCodec.mjs';
+import { deriveFarmPlotPng, FARM_PLOT_MAX_WIDTH } from '../../scripts/deriveFarmPlotAsset.mjs';
 import { deriveHutImage, deriveHutPng, HUT_MAX_WIDTH } from '../../scripts/deriveHutAsset.mjs';
 import { removeExteriorBackground, WHITE_BACKGROUND_RULE } from '../../scripts/worldAssetPixels.mjs';
 import { readPng, type PngImage } from '../testSupport/png';
@@ -17,8 +18,8 @@ import {
   FARM_GRID,
   FARM_HARVEST_FRAMES,
   FARM_PLOT_TILE,
+  FARM_TILE_CENTER_FROM_ANCHOR_PX,
   FARM_TILE_STEP_PX,
-  FARM_TILE_TOP_CENTER_ABOVE_ANCHOR_PX,
   FARM_WATER_FRAME,
   FARM_WATER_HUMAN_FEET,
   FARM_WORK_SEQUENCE,
@@ -47,8 +48,15 @@ const ZIP_PNG_SHA256: Record<string, string> = {
   'cook_pot_steam1.png': 'd0c0a50e1898e071c9b5f0123220e15408eacf145865235e550ad8603d174117',
   'cook_pot_steam2.png': '7dfa98bf87296478352b787e320824bb504aaf54bbc02f95f910eafe3be0bc3a',
 };
-// The approved standalone plot component (SHA-256 d1dedfc3…138f): added unedited.
-const PLOT_TILE_SHA256 = 'd1dedfc3ee102ba9e2b0c5b1018b62d45e9e0848417a4246b07581e1c89c138f';
+// The approved four-plant plot JPEG (SHA-256 0e070b23…bd02), kept unchanged as the
+// source of truth, its lossless PNG decode (macOS `sips`) and the derived runtime
+// PNG. The runtime file is pinned by the SHA-256 of its decoded RGBA pixels (the
+// PNG container bytes depend on the zlib version) and by re-deriving it below.
+const PLOT_JPEG_SHA256 = '0e070b2341d1406e35cdfa2e07d4f3c9137be0a08ec5a3059ec2573af60cbd02';
+const PLOT_DECODED_PNG_SHA256 = '466d01a472ebf998fe7e270bddc217fba376e6bbda2717294316587e5ab1f464';
+const PLOT_RUNTIME_PIXELS_SHA256 = '4dbf044d775f9d2b55e5217c63e3aeb73c5dc4180cd1afc24a353e5524d0dcc9';
+const PLOT_JPEG = new URL('art-source/turn2/farm-plot-four-plants-source.jpg', ROOT);
+const PLOT_DECODED = new URL('art-source/turn2/farm-plot-four-plants-source-decoded.png', ROOT);
 // The approved hut JPEG (SHA-256 74bac054…6397), kept unchanged as the source of
 // truth, and its lossless PNG decode (macOS `sips -s format png`) the script reads.
 const HUT_JPEG_SHA256 = '74bac0548d21c4d4cf35881cfe5419f8874ea9632082b390659b397031636397';
@@ -129,7 +137,7 @@ describe('Turn 2 supplied animation PNGs', () => {
       'cook-steam-2',
     ]);
     expect(HUT_ASSET.textureKey).toBe('world-hut');
-    expect(FARM_PLOT_TILE.textureKey).toBe('farm-plot-single');
+    expect(FARM_PLOT_TILE.textureKey).toBe('farm-plot-four-plants');
   });
 
   it.each(ZIP_FRAMES)('$filename: byte-identical to the ZIP, 512x512 8-bit RGBA with transparency', (frame) => {
@@ -207,35 +215,136 @@ describe('Turn 2 supplied animation PNGs', () => {
   });
 });
 
-describe('Standalone farm plot tile (farm_plot_single.png)', () => {
+describe('Standalone farm plot component (farm-plot-four-plants.png)', () => {
   const bytes = fileBytes(FARM_PLOT_TILE);
   const png = readPng(bytes);
 
-  it('is the approved PNG, byte for byte: 512x512 8-bit RGBA with a transparent background', () => {
-    expect(sha256(bytes)).toBe(PLOT_TILE_SHA256);
+  it('keeps the approved JPEG unchanged: 1254x1254 baseline RGB, exact hash', () => {
+    const jpeg = readFileSync(PLOT_JPEG);
+    expect(sha256(jpeg)).toBe(PLOT_JPEG_SHA256);
+    expect([jpeg[0], jpeg[1]]).toEqual([0xff, 0xd8]);
+    let sof = -1;
+    for (let i = 2; i < jpeg.length - 1 && sof < 0; i += 1) if (jpeg[i] === 0xff && jpeg[i + 1] === 0xc0) sof = i;
+    expect(sof).toBeGreaterThan(0); // baseline (SOF0)
+    const u16 = (offset: number): number => (jpeg[offset] << 8) | jpeg[offset + 1];
+    expect([u16(sof + 5), u16(sof + 7), jpeg[sof + 9], jpeg[sof + 4]]).toEqual([1254, 1254, 3, 8]);
+    expect(sha256(readFileSync(PLOT_DECODED))).toBe(PLOT_DECODED_PNG_SHA256);
+    const decoded = decodePng(readFileSync(PLOT_DECODED));
+    expect([decoded.width, decoded.height]).toEqual([1254, 1254]);
+    // Opaque white background: every corner is near-white and fully opaque.
+    for (const [x, y] of [[0, 0], [1253, 0], [0, 1253], [1253, 1253]]) {
+      const i = (y * 1254 + x) * 4;
+      expect([decoded.pixels[i], decoded.pixels[i + 1], decoded.pixels[i + 2]].every((v: number) => v > 240)).toBe(true);
+      expect(decoded.pixels[i + 3]).toBe(255);
+    }
+  });
+
+  it('is the derived runtime PNG: 8-bit RGBA, transparent background, pinned pixels', () => {
     expect([png.bitDepth, png.colorType]).toEqual([8, 6]);
-    expect([png.width, png.height]).toEqual([512, 512]);
+    expect([png.width, png.height]).toEqual([FARM_PLOT_TILE.width, FARM_PLOT_TILE.height]);
+    expect(png.width).toBeLessThanOrEqual(FARM_PLOT_MAX_WIDTH);
     expect(png.minAlpha).toBe(0);
     expect(png.maxAlpha).toBe(255);
-    for (const [x, y] of [[0, 0], [511, 0], [0, 511], [511, 511]]) expect(alphaAt(png, x, y)).toBe(0);
+    for (const [x, y] of [[0, 0], [png.width - 1, 0], [0, png.height - 1], [png.width - 1, png.height - 1]]) expect(alphaAt(png, x, y)).toBe(0);
+    expect(sha256(decodePng(bytes).pixels)).toBe(PLOT_RUNTIME_PIXELS_SHA256);
     expect(FARM_PLOT_TILE.dir).toBe(TURN2_WORLD_ASSET_DIR);
-    expect(FARM_PLOT_TILE.filename).toBe('farm_plot_single.png');
+    expect(FARM_PLOT_TILE.filename).toBe('farm-plot-four-plants.png');
+    // The superseded one-plant component is gone.
+    expect(existsSync(new URL('public/assets/world/turn2/farm_plot_single.png', ROOT))).toBe(false);
+  });
+
+  it('matches the derivation script output exactly (deterministic, run after run)', () => {
+    const decodedBytes = readFileSync(PLOT_DECODED);
+    const first = deriveFarmPlotPng(decodedBytes);
+    expect(deriveFarmPlotPng(decodedBytes)).toEqual(first);
+    expect(decodePng(first).pixels).toEqual(decodePng(bytes).pixels);
+  });
+
+  it('removes only the exterior-connected white: no holes, no white halo, art untouched', () => {
+    const mask = (x: number, y: number): boolean => alphaAt(png, x, y) > 0;
+    const outside = new Uint8Array(png.width * png.height);
+    const stack: number[] = [];
+    const push = (x: number, y: number): void => {
+      const i = y * png.width + x;
+      if (outside[i] || mask(x, y)) return;
+      outside[i] = 1;
+      stack.push(i);
+    };
+    for (let x = 0; x < png.width; x += 1) { push(x, 0); push(x, png.height - 1); }
+    for (let y = 0; y < png.height; y += 1) { push(0, y); push(png.width - 1, y); }
+    while (stack.length > 0) {
+      const i = stack.pop() as number;
+      const x = i % png.width;
+      const y = (i - x) / png.width;
+      if (x > 0) push(x - 1, y);
+      if (x < png.width - 1) push(x + 1, y);
+      if (y > 0) push(x, y - 1);
+      if (y < png.height - 1) push(x, y + 1);
+    }
+    let holes = 0;
+    for (let i = 0; i < outside.length; i += 1) if (!outside[i] && !mask(i % png.width, Math.floor(i / png.width))) holes += 1;
+    expect(holes).toBe(0);
+    // No opaque near-white pixel touches the transparent exterior (white fringe).
+    let fringe = 0;
+    for (let y = 1; y < png.height - 1; y += 1) {
+      for (let x = 1; x < png.width - 1; x += 1) {
+        if (alphaAt(png, x, y) < 250) continue;
+        const exterior = [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => alphaAt(png, x + dx, y + dy) === 0);
+        const i = (y * png.width + x) * 4;
+        if (exterior && png.pixels[i] > 235 && png.pixels[i + 1] > 235 && png.pixels[i + 2] > 235) fringe += 1;
+      }
+    }
+    expect(fringe).toBe(0);
+    // Fully opaque pixels keep the source's own colour (nothing recoloured).
+    const source = decodePng(readFileSync(PLOT_DECODED));
+    const cutOut = removeExteriorBackground(source, WHITE_BACKGROUND_RULE);
+    let changed = 0;
+    for (let i = 0; i < cutOut.pixels.length; i += 4) {
+      if (cutOut.pixels[i + 3] === 255 && (cutOut.pixels[i] !== source.pixels[i] || cutOut.pixels[i + 1] !== source.pixels[i + 1] || cutOut.pixels[i + 2] !== source.pixels[i + 2])) changed += 1;
+    }
+    expect(changed).toBe(0);
   });
 
   it('is registered with a stable ground anchor: bottom centre of its art, like every other frame', () => {
-    expect(FARM_PLOT_TILE.groundAnchor).toEqual({ x: 256, y: 284 });
+    expect(FARM_PLOT_TILE.groundAnchor).toEqual({ x: 224, y: 294 });
     const bounds = mainBounds(png);
     expect(bounds.bottom).toBe(FARM_PLOT_TILE.groundAnchor.y);
     expect(Math.abs((bounds.left + bounds.right) / 2 - FARM_PLOT_TILE.groundAnchor.x)).toBeLessThanOrEqual(0.5);
-    // Same scale as the composite farm frames: one tile is one cell of their own plot.
-    expect(FARM_PLOT_TILE.baseScale).toBe(FARM_BASE_SCALE);
-    expect(FARM_PLOT_TILE.textureKey).toBe('farm-plot-single');
+    expect(FARM_PLOT_TILE.textureKey).toBe('farm-plot-four-plants');
+    expect(FARM_PLOT_TILE.baseScale).toBe(0.08);
+  });
+
+  // Green plant pixels (leaf + dark-green outline): the plants' canopy.
+  const canopyArea = (image: PngImage, minY = 0): number => {
+    let area = 0;
+    for (let y = minY; y < image.height; y += 1) {
+      for (let x = 0; x < image.width; x += 1) {
+        const i = (y * image.width + x) * 4;
+        if (image.pixels[i + 3] > 128 && image.pixels[i + 1] > image.pixels[i] + 25 && image.pixels[i + 1] > image.pixels[i + 2] + 25) area += 1;
+      }
+    }
+    return area;
+  };
+
+  it('draws its four plants as large as the plants embedded in the Human farm frames (equal canopy on screen)', () => {
+    const componentPlant = canopyArea(png) / 4;
+    for (const frame of FARM_HARVEST_FRAMES) {
+      // The embedded plot's plants (below the Human's bowl): 4 plants drawn at FARM_BASE_SCALE.
+      const embeddedPlant = canopyArea(readPng(fileBytes(frame)), 330) / 4;
+      const onScreenComponent = componentPlant * FARM_PLOT_TILE.baseScale ** 2;
+      const onScreenEmbedded = embeddedPlant * FARM_BASE_SCALE ** 2;
+      expect(Math.abs(onScreenComponent - onScreenEmbedded) / onScreenEmbedded).toBeLessThan(0.25);
+    }
+    // At the composite's own 0.22 the new plants would be about 7x too large; the Human scale is untouched.
+    expect(FARM_BASE_SCALE).toBe(0.22);
+    const embedded = canopyArea(readPng(fileBytes(FARM_HARVEST_FRAMES[0])), 330) / 4;
+    expect((componentPlant * 0.22 ** 2) / (embedded * FARM_BASE_SCALE ** 2)).toBeGreaterThan(5);
   });
 
   it('is never edited by the runtime: the Scene only scales and positions it', () => {
     const scene = readFileSync(new URL('src/presentation/IslandScene.ts', ROOT), 'utf8');
     expect(scene).toContain('FARM_PLOT_TILE');
-    expect(scene).not.toMatch(/farm_plot_single|\.jpg/);
+    expect(scene).not.toMatch(/farm_plot_single|farm-plot|\.jpg/);
   });
 });
 
@@ -547,11 +656,16 @@ function routeSamples(): { x: number; y: number }[] {
 }
 
 describe('Expanded farm layout', () => {
-  it('lays out one tile per grid cell outside the composite plot, on one coherent isometric lattice', () => {
+  it('lays out one component per grid cell outside the composite plot, on one coherent isometric lattice', () => {
     const { along, across, compositeCells } = FARM_GRID;
     expect(LAYOUT.farmPlotTiles).toHaveLength(along * across - compositeCells * compositeCells);
-    const stepX = FARM_TILE_STEP_PX.x * FARM_BASE_SCALE;
-    const stepY = FARM_TILE_STEP_PX.y * FARM_BASE_SCALE;
+    // Exactly three standalone components plus the composite plot: 16 plants (the reference has about 12),
+    // not the 48-plant carpet of 11 components.
+    expect(LAYOUT.farmPlotTiles).toHaveLength(3);
+    expect((LAYOUT.farmPlotTiles.length + 1) * 4).toBeLessThanOrEqual(16);
+    expect((LAYOUT.farmPlotTiles.length + 1) * 4).toBeGreaterThanOrEqual(12);
+    const stepX = FARM_TILE_STEP_PX.x * FARM_PLOT_TILE.baseScale * FARM_GRID.spacing;
+    const stepY = FARM_TILE_STEP_PX.y * FARM_PLOT_TILE.baseScale * FARM_GRID.spacing;
     const first = LAYOUT.farmPlotTiles[0];
     const cells = new Set<string>();
     for (const tile of LAYOUT.farmPlotTiles) {
@@ -564,23 +678,36 @@ describe('Expanded farm layout', () => {
       cells.add(`${tile.x.toFixed(4)},${tile.y.toFixed(4)}`);
     }
     expect(cells.size).toBe(LAYOUT.farmPlotTiles.length); // no two tiles on the same spot
-    // Tiles share one anchor convention and scale, so they cannot jump relative to each other.
-    expect(FARM_PLOT_TILE.baseScale).toBe(FARM_BASE_SCALE);
+    // Components share one anchor convention and scale, so they cannot jump relative to each other.
+    expect(FARM_PLOT_TILE.baseScale).toBe(0.08);
   });
 
-  it('never covers the composite plot cells with a tile', () => {
-    const composite = FARM_HARVEST_FRAMES[0];
-    const origin = groundOrigin(composite);
+  it('spaces the patches out: grass shows between neighbouring components, which never overlap', () => {
+    expect(FARM_GRID.spacing).toBeGreaterThan(1.5);
+    const pixels = LAYOUT.farmPlotTiles.map((ground) => opaquePixels(FARM_PLOT_TILE, TILE_BYTES, ground));
+    for (let a = 0; a < pixels.length; a += 1) {
+      for (let b = a + 1; b < pixels.length; b += 1) {
+        const shared = [...pixels[a]].filter((key) => pixels[b].has(key)).length;
+        expect(shared).toBe(0);
+      }
+    }
+    // Plant size is unchanged: the spacing, not the scale, sets the footprint.
+    expect(FARM_PLOT_TILE.baseScale).toBe(0.08);
+  });
+
+  it('never covers the composite plot cell with a component', () => {
     const centre = {
       x: LAYOUT.plot.x + FARM_COMPOSITE_PLOT_CENTER_PX.x * FARM_BASE_SCALE,
       y: LAYOUT.plot.y + FARM_COMPOSITE_PLOT_CENTER_PX.y * FARM_BASE_SCALE,
     };
-    expect(origin.x).toBeCloseTo(289 / 512, 9);
-    const tileTopCentreOffset = FARM_TILE_TOP_CENTER_ABOVE_ANCHOR_PX * FARM_BASE_SCALE;
+    const scale = FARM_PLOT_TILE.baseScale;
     for (const tile of LAYOUT.farmPlotTiles) {
-      const tileCentre = { x: tile.x, y: tile.y - tileTopCentreOffset };
-      // A tile's top-face centre is at least one cell away from the composite plot's centre.
-      const cellsAway = Math.abs(tileCentre.x - centre.x) / (FARM_TILE_STEP_PX.x * FARM_BASE_SCALE);
+      const tileCentre = {
+        x: tile.x + FARM_TILE_CENTER_FROM_ANCHOR_PX.x * scale,
+        y: tile.y + FARM_TILE_CENTER_FROM_ANCHOR_PX.y * scale,
+      };
+      // A component's plant-lattice centre is at least one cell away from the composite plot's centre.
+      const cellsAway = Math.hypot((tileCentre.x - centre.x) / (FARM_TILE_STEP_PX.x * scale), (tileCentre.y - centre.y) / (FARM_TILE_STEP_PX.y * scale));
       expect(cellsAway).toBeGreaterThan(0.99);
     }
   });
@@ -589,10 +716,10 @@ describe('Expanded farm layout', () => {
     const width = FARM_BOX.right - FARM_BOX.left;
     const height = FARM_BOX.bottom - FARM_BOX.top;
     // Reference plot: about 145x92 reference px; the island is drawn 0.95x as wide here.
-    expect(width).toBeGreaterThan(138 * 0.75);
-    expect(width).toBeLessThan(138 * 1.25);
+    expect(width).toBeGreaterThan(138 * 0.7);
+    expect(width).toBeLessThan(138 * 1.15);
     expect(height).toBeGreaterThan(88 * 0.65);
-    expect(height).toBeLessThan(88 * 1.2);
+    expect(height).toBeLessThan(88 * 1.15);
     // A wider-than-tall field, like the reference's parallelogram.
     expect(width / height).toBeGreaterThan(1.3);
   });

@@ -52,35 +52,47 @@ export const FARM_HARVEST_FRAMES = [
   { ...FARM_COMMON, textureKey: 'farm-harvest-2', filename: 'human_farm_harvest2.png', groundAnchor: { x: 309, y: 479 } },
 ] as const satisfies readonly Turn2Frame[];
 
-// --- Standalone plot tile (farm_plot_single.png, the supplied component, unedited).
-// Repeated copies grow the farm to the Visual Reference's size. Anchor: bottom
-// centre of the tile's visible art (the same convention as every other frame).
+// --- Standalone plot component (farm-plot-four-plants.png): a four-plant plot,
+// derived from the approved JPEG by removing only its exterior-connected white
+// background (scripts/deriveFarmPlotAsset.mjs; the plot art is untouched). Repeated
+// copies grow the farm to the Visual Reference's size. Anchor: bottom centre of
+// the art's visible bounds (the same convention as every other frame).
 export const FARM_PLOT_TILE: Turn2Frame = {
-  textureKey: 'farm-plot-single',
-  filename: 'farm_plot_single.png',
+  textureKey: 'farm-plot-four-plants',
+  filename: 'farm-plot-four-plants.png',
   dir: TURN2_WORLD_ASSET_DIR,
-  width: TURN2_FRAME_SIZE,
-  height: TURN2_FRAME_SIZE,
-  groundAnchor: { x: 256, y: 284 },
-  // The same scale as the composite frames: one tile is one cell of their own plot.
-  baseScale: FARM_BASE_SCALE,
+  width: 448,
+  height: 295,
+  groundAnchor: { x: 224, y: 294 },
+  baseScale: 0.08,
   placementSpace: 'island',
   placement: PLOT_PLACEMENT,
 };
 
-// Isometric tile geometry in the tile PNG's pixels, measured from its art: the top
-// face is a 86x43 diamond, so a neighbouring tile is half that away along each
-// axis; the top face's centre is 36.5 px above the anchor.
-export const FARM_TILE_STEP_PX: Point = { x: 43, y: 21.5 };
-export const FARM_TILE_TOP_CENTER_ABOVE_ANCHOR_PX = 36.5;
-// The top-face centre of the plot drawn inside human_farm_harvest1.png (a 2x2 block
-// of those cells), relative to that frame's ground anchor, in its pixels. The
-// expansion tiles are laid out on the same grid around it.
+// Plant size match. Per-plant canopy (leaf + outline) area is about 10,200 px² in
+// this art and about 1,450 px² in the plants embedded in human_farm_harvest1/2
+// (4 plants, about 5,800 px², drawn at FARM_BASE_SCALE 0.22). Equal on-screen
+// canopy needs a linear scale of sqrt(1450 / 10200) * 0.22 = 0.083; 0.08 is used.
+// The approved Human and composite scale (FARM_BASE_SCALE) is untouched.
+
+// Isometric geometry in the component PNG's pixels, measured from its four plants:
+// the plant lattice has a pitch of about (113, 62) px, so a neighbouring component
+// (2 plants along each axis) is (226, 124) px away. The plants' centroid is 8 px
+// right of the anchor and 171 px above it.
+export const FARM_TILE_STEP_PX: Point = { x: 226, y: 124 };
+export const FARM_TILE_CENTER_FROM_ANCHOR_PX: Point = { x: 8, y: -171 };
+// The centre of the plot drawn inside human_farm_harvest1.png (its own 2x2 plants),
+// relative to that frame's ground anchor, in its pixels. The expansion components
+// are laid out on the same grid around it, the composite being the grid's first cell.
 export const FARM_COMPOSITE_PLOT_CENTER_PX: Point = { x: 14, y: -58 };
-// The farm grid in cells: `along` runs down-right, `across` runs up-right. The
-// composite plot covers the cells where both indices are 0 or 1; every other cell
-// gets a standalone tile. 6x7 cells reaches the Visual Reference's footprint.
-export const FARM_GRID = { along: 6, across: 7, compositeCells: 2 } as const;
+// The farm grid in component cells: `along` runs down-right, `across` runs up-right.
+// The composite plot is the cell where both indices are 0; every other cell gets
+// one standalone component. 2 x 2 cells = the composite plus 3 components, 16 plants
+// in all (the Visual Reference has about 12). `spacing` multiplies the contact
+// distance (FARM_TILE_STEP_PX) between neighbouring patches, so grass shows between
+// the soil patches like the reference's, and the footprint stays near the
+// reference's without adding copies or enlarging the plants.
+export const FARM_GRID = { along: 2, across: 2, compositeCells: 1, spacing: 2 } as const;
 
 export const FARM_WATER_FRAME: Turn2Frame = {
   ...FARM_COMMON,

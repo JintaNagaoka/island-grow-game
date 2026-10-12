@@ -151,7 +151,8 @@ describe('Turn 2 sequence', () => {
 
   it('grows the standalone plot tiles in one after another during farm-expands, then keeps them', () => {
     const count = LAYOUT.farmPlotTiles.length;
-    expect(count).toBeGreaterThan(20);
+    // Exactly three standalone four-plant components (plus the composite plot): 16 plants, not a carpet.
+    expect(count).toBe(3);
     // Hidden until the Wave starts (water and harvest Waves).
     for (const id of ['human-walks-to-plot', 'human-waters-plot', 'human-harvests-plot']) {
       expect(computeFarmTiles(inWave(id, 0.9)).every((tile) => tile.alpha === 0)).toBe(true);
