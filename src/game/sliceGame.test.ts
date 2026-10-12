@@ -27,6 +27,7 @@ describe('initial state', () => {
       animalStage: 1,
       humanStage: 1,
       population: 1,
+      residents: [{ id: 'resident-1', place: 'start', target: null, motion: 'idle' }],
       isCold: true,
     });
     expect(snapshot.phase).toBe('awaiting-input');
@@ -81,6 +82,7 @@ describe('fire selection', () => {
       animalStage: 1,
       humanStage: 1,
       population: 1,
+      residents: [{ id: 'resident-1', place: 'fire', target: null, motion: 'idle' }],
       isCold: false,
     });
   });

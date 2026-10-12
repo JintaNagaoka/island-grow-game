@@ -1,6 +1,6 @@
 # Island Grow Game
 
-TypeScript + Phaser + Vite + Vitest のプロジェクトです。現在は Vertical Slice 01「🔥で小人が暖まる」（Turn 1）と、その後の 🌱「畑・雨よけの小屋化・生活の始まり」（Turn 2）が遊べます（仮アセット）。🪨 / 💧 の進行、2 人目の小人、24 順列、END 判定などは未実装です。
+TypeScript + Phaser + Vite + Vitest のプロジェクトです。現在は Vertical Slice 01「🔥で小人が暖まる」（Turn 1）と、その後の 🌱「畑・雨よけの小屋化・生活の始まり」（Turn 2）が遊べます（仮アセット）。Turn 2 の開始時に小人が 2 人に分裂します（Issue #12。見た目・体感は 2026-10-12 に Cloudflare Pages のプレビューで Human Review 承認済みです）。🪨 / 💧 の進行、Turn 3 以降の人口増加、24 順列、END 判定などは未実装です。
 
 ## 前提ランタイム
 
@@ -35,17 +35,20 @@ nvm を使う場合は、リポジトリのルートで `nvm install` と `nvm u
 
 ### Turn 2（🌱）のプレイ確認
 
-Turn 1 が完了すると 🌱 だけが選べるようになります（Turn 1 の完了前、再生中、Turn 2 の完了後は選べません）。🌱 をタップすると入力がロックされ、約 11.0 秒（97 BPM の 13 拍 + 農作業の 3 秒）で次の Wave が一度だけ進みます。
+Turn 1 が完了すると 🌱 だけが選べるようになります（Turn 1 の完了前、再生中、Turn 2 の完了後は選べません）。🌱 をタップすると入力がロックされ、約 11.6 秒（従来の約 11.0 秒 = 97 BPM の 13 拍 + 農作業の 3 秒 に、分裂の 0.6 秒を加えたもの）で次の Wave が一度だけ進みます。
 
-1. `human-walks-to-plot`: 小人が火のそばから左中段の草地の畑予定地へ歩く（承認済み4方向歩行。雨よけの右脚と火の間のすき間を通って上へ、雨よけの屋根の右上の空き地を上へ進み、島の岩を避けて、畑の左下から着く）
-2. `human-waters-plot`: 小人が畑に着いたら、`human_farm_water1` を**ちょうど 1.5 秒（論理時間）連続して**表示する（畑が小さくポップインする。`plantStage` は 0 のまま）
-3. `human-harvests-plot`: `human_farm_harvest2` をちょうど 1.5 秒連続して表示する
-4. `farm-expands`: `human_farm_harvest1` に落ち着き、単独の四株の畑 `farm-plot-four-plants.png` が 1 枚ずつ育つように増えて、リファレンスに近い大きさの畑になる（この Wave の完了時に `plantStage` が 1 になり（1 回だけ。2 は使いません）、拡張した畑は以後ずっと残る）
-5. `shelter-levels-up`: 雨よけが膨らみながら薄れ、同じ接地点から小屋が現れる（淡い光と小さなきらめき。新規画像は生成していません。`shelterStage` が 2 になる）
-6. `cooking-starts`: 既存の焚き火が膨らみながら薄れ、同じ接地点で調理の火（`cook_pot_steam1` ↔ `steam2`）へレベルアップする（鍋を隣に置くのではなく、焚き火の置き換え。完了時に `fireStage` が 1 → 2 になり、以後は調理の火だけが表示される）
-7. `animal-eats`: 既存の動物 1 頭が、同じ接地点で餌を食べる姿（`animal_eat1` ↔ `eat2`）へレベルアップする（動物は 1 頭のまま。完了時に `animalStage` が 1 → 2 になる）
+1. `human-splits`: 🌱 が受理された瞬間に人口が**ちょうど 2 人**になります（`splitResident`。以後ずっと 2 人で、再選択や再評価で増えません）。2 人とも Turn 1 完了時の火の前の同じ位置に留まり、ぷるぷる→ポンッ（600 論理ミリ秒）で分裂するレベルアップを見せます。前半は小人 1 が横に震え（振幅 2.5 px、9 Hz）、小人 2 は非表示、後半に小人 2 がポンッと現れます（0.6 倍から拡大するポップ）。この間は小人 2 の `motion` は `idle`、`target` は `null` で、Wave の完了時にロジックが歩き出し（`target: 'plot'`、`motion: 'walking'`）にします。小人 1 は Turn 2 の間ずっと火の前で待ちます
+2. `human-walks-to-plot`: 分裂後に小人 2 だけが（既存の Issue #11 の経路・素材のまま）火のそばから左中段の草地の畑予定地へ歩く（承認済み4方向歩行。雨よけの右脚と火の間のすき間を通って上へ、雨よけの屋根の右上の空き地を上へ進み、島の岩を避けて、畑の左下から着く）
+3. `human-waters-plot`: 小人 2 が畑に着いたら、`human_farm_water1` を**ちょうど 1.5 秒（論理時間）連続して**表示する（畑が小さくポップインする。`plantStage` は 0 のまま）
+4. `human-harvests-plot`: `human_farm_harvest2` をちょうど 1.5 秒連続して表示する
+5. `farm-expands`: `human_farm_harvest1` に落ち着き、単独の四株の畑 `farm-plot-four-plants.png` が 1 枚ずつ育つように増えて、リファレンスに近い大きさの畑になる（この Wave の完了時に `plantStage` が 1 になり（1 回だけ。2 は使いません）、拡張した畑は以後ずっと残る）
+6. `shelter-levels-up`: 雨よけが膨らみながら薄れ、同じ接地点から小屋が現れる（淡い光と小さなきらめき。新規画像は生成していません。`shelterStage` が 2 になる）
+7. `cooking-starts`: 既存の焚き火が膨らみながら薄れ、同じ接地点で調理の火（`cook_pot_steam1` ↔ `steam2`）へレベルアップする（鍋を隣に置くのではなく、焚き火の置き換え。完了時に `fireStage` が 1 → 2 になり、以後は調理の火だけが表示される）
+8. `animal-eats`: 既存の動物 1 頭が、同じ接地点で餌を食べる姿（`animal_eat1` ↔ `eat2`）へレベルアップする（動物は 1 頭のまま。完了時に `animalStage` が 1 → 2 になる）
 
-どのレベルアップ（小屋・調理の火・動物）も、論理クロックから導く短い「入れ替え」演出（旧い絵が少し膨らんで薄れ、新しい絵が同じ接地点から現れる。淡い光と小さなきらめき）で、Wave の完了条件はアニメーションの完了ではありません。完了後、🌱 が「✓ 選択済み」になり、畑の収穫アニメーション・調理の火の湯気・動物の食事が控えめに続きます。人口は 1 人のまま、動物も 1 頭のままで、柵・繁殖・池・水路・祠は出ません。2 人目の小人は別 Issue です。
+どのレベルアップ（小屋・調理の火・動物）も、論理クロックから導く短い「入れ替え」演出（旧い絵が少し膨らんで薄れ、新しい絵が同じ接地点から現れる。淡い光と小さなきらめき）で、Wave の完了条件はアニメーションの完了ではありません。完了後、🌱 が「✓ 選択済み」になり、畑の収穫アニメーション・調理の火の湯気・動物の食事が控えめに続きます。完了時の人口は 2 人です。`WorldState.residents` に安定した ID を持つ 2 つの状態（`resident-1`: 火の前で待機、`resident-2`: 畑の位置）が残り、`humanStage` は 2 です（将来の Turn 3 がこの状態を引き継ぎます。Turn 3 の人口増加は未実装です）。画面上は、小人 1 が火の前で idle のまま、小人 2 は既存の農作業・複合画像（畑の位置）で表現されます。動物は 1 頭のままで、柵・繁殖・池・水路・祠は出ません。
+
+分裂の長さ 600 ms、震えの振幅 2.5 px、9 Hz、ポップの拡大率 0.6 倍は、Notion に数値の定義がないため Human Review 対象とし、2026-10-12 に Cloudflare Pages の実機確認で承認されました（`SPLIT_WAVE_MS` は `src/game/timing.ts`、震え・ポップは `src/presentation/residents.ts`）。これらの値を変更する場合は、再度 Human Review が必要です。
 
 上下左右の歩行確認用に、開発サーバーでのみ `/?humanWalkPreview` を開くと、小人が右→下→左→上へ歩き続けるレビュー用ループを表示します（🔥 を押すと `isCold` が false になった後の見た目も確認できます）。本番ビルドでは無効です。
 5. 再生中に 🔥 や他のボタンを連打しても、進行が重複したり変わったりしないことを確認します。
@@ -54,6 +57,59 @@ Turn 1 が完了すると 🌱 だけが選べるようになります（Turn 1 
 8. ウィンドウの縦横比を変えても、9:16 の画面が中央にフィットして表示されることを確認します。
 
 間・歩行の可愛さ・演出の長さ・画面余白などの体感は自動テストでは判定できません。人間によるプレイレビューで確認してください。
+
+## Cloudflare Pages でのスマホ Human Review
+
+主な Human Review 環境はスマートフォンです。Human Review は、Cloudflare Pages のプレビュー URL を**実機のスマホで開いて**行います（PC のブラウザや自動テストの結果で代用しません）。このリポジトリには Cloudflare 用の設定ファイルも Wrangler 依存もありません。下記は、push していないローカルの変更を確認するための Direct Upload の手順です。
+
+公式ドキュメント:
+- Direct Upload: <https://developers.cloudflare.com/pages/get-started/direct-upload/>
+- Preview Deployments: <https://developers.cloudflare.com/pages/configuration/preview-deployments/>
+
+### 1. 事前確認（クリーンな Node 22 環境）
+
+```sh
+nvm use
+npm ci
+npm test
+npm run typecheck
+npm run build
+```
+
+すべて成功したことを確認してから、生成された `dist/` をアップロードします。`dist/` に秘密情報やローカル設定（`.env` など）を置いてはいけません。
+
+### 2. ダッシュボードからのアップロード（現行の公式ドキュメントの手順）
+
+1. Cloudflare ダッシュボードで Workers & Pages → Create application → Get started → Drag and drop your files を選びます。
+2. プロジェクト名を決め（任意の名前。ここでは `<PROJECT_NAME>` と書きます）、`dist/` フォルダ（または zip）をアップロードして Deploy します。
+3. 既存の Direct Upload プロジェクトに追加する場合は、Create a new deployment を選び、環境に **Preview** を選んで、ブランチ名に `ai-issue-12-human-split` などのラベルを指定します。
+
+### 3. Wrangler を使う場合（`package.json` には追加しません）
+
+```sh
+npx wrangler login
+npx wrangler pages deploy dist --project-name=<PROJECT_NAME> --branch=ai-issue-12-human-split
+```
+
+本番ブランチ以外の名前を `--branch` に指定すると、そのブランチ用のプレビューのエイリアスが作成／更新されるだけで、本番（production）は置き換わりません。`<PROJECT_NAME>` は自分の Pages プロジェクト名に読み替えます。API トークンやアカウント ID は README・Issue・PR・コミットに書かないでください。
+
+### 4. 注意
+
+- 最初に Direct Upload で作ったプロジェクトは、後から Git 連携に切り替えられません。ブランチ／PR ごとの自動プレビューを長期的に使いたい場合は、Git 連携の別プロジェクトを新しく作ります。
+- プレビュー URL は、Cloudflare Access を有効にしない限り、既定で公開です。URL の取り扱いに注意してください。
+- レビューの証跡として、プレビュー URL と、確認したコミット／worktree の識別情報を Issue / PR のレビュー記録に残します。
+
+### 5. 実機スマホでの Human Review チェックリスト
+
+- [ ] 縦向き 360x640 相当と、より縦長の 390x844 前後の両方で、切れ・余白・セーフエリア・UI（🔥 / 🌱 / 🪨 / 💧 のタップ領域の大きさ）・縦横の向きのレイアウトに問題がない
+- [ ] Turn 1 は小人がちょうど 1 人で、これまでと変わらない
+- [ ] 🌱 の受理時、火の前で分裂が**レベルアップとして**はっきり読める。分裂の間、2 人とも Turn 1 完了時の位置に留まり、ジャンプ／瞬間移動がない
+- [ ] 小人 1 は火の前に留まり、小人 2 はポンッの**後にだけ**承認済みの経路を歩き始める。片方が止まってももう片方に影響しない
+- [ ] 歩行フレーム・足元の基準点・大きさが安定し、経路は島の上にある
+- [ ] 連打やリロードを繰り返しても 3 人目が現れない
+- [ ] Turn 2 の完了後も 2 人が維持される（将来の Turn 3 のため）
+- [ ] 承認済みの値（分裂の 600 ms、震え 2.5 px / 9 Hz、ポップ 0.6 倍）が実機で維持されていることを確認する（値を変える場合は再承認が必要です。自動テストはゲームフィールを承認しません）
+- [ ] ブラウザのコンソールにエラーがない。任意で、プレビューのレスポンスに `x-robots-tag: noindex` が付いていることを確認する
 
 ## World asset derivation（初期状態 / Turn 1 の世界素材）
 
@@ -154,7 +210,7 @@ sips -s format png asset-source/initial-turn1/campfire_frame_b_1254.jpg --out as
 
 ### Visual Reference（Turn 2 完了状態の参照画像）
 
-`art-source/turn2/visual-reference-turn2-end.jpg`（SHA-256 `eb27ba21e6b70a6df91830a9562f78ce956a9152af29c714d74a244b2223c455`、720x1280、RGB、baseline JPEG）を無加工で保持しています。ランタイムでは読み込まず、テストがハッシュと JPEG の寸法を照合します。この参照に基づく変更は、畑の位置（左中段）、農作業の小人の見かけの大きさ、調理（焚き火のレベルアップ）と動物（レベルアップ）の表現だけです。参照に写っている 2 人目の小人は Issue #12、洞窟内の物・水平線と雲・カメラの切り取り・UI の有無は範囲外です。
+`art-source/turn2/visual-reference-turn2-end.jpg`（SHA-256 `eb27ba21e6b70a6df91830a9562f78ce956a9152af29c714d74a244b2223c455`、720x1280、RGB、baseline JPEG）を無加工で保持しています。ランタイムでは読み込まず、テストがハッシュと JPEG の寸法を照合します。この参照に基づく変更は、畑の位置（左中段）、農作業の小人の見かけの大きさ、調理（焚き火のレベルアップ）と動物（レベルアップ）の表現だけです。参照に写っている 2 人目の小人は Issue #12 で別途実装しました（分裂の見た目を参照画像と照合してはいません）。洞窟内の物・水平線と雲・カメラの切り取り・UI の有無は範囲外です。
 
 ### 小屋（`public/assets/world/turn2/hut-stage2.png`）
 
@@ -180,6 +236,7 @@ sips -s format png asset-source/initial-turn1/campfire_frame_b_1254.jpg --out as
   - `animation.ts`: スナップショットから小人・火・動物のidleの見た目を計算する純粋関数（Phaser 非依存）
   - `worldAssets.ts`: 島・雨よけ・動物・焚き火 2 フレームの PNG のメタデータ（キー、ファイル名、サイズ、接地点、スケール、配置）
   - `turn2Assets.ts`: Turn 2 の PNG（畑 3 フレーム・動物 2 フレーム・鍋 2 フレーム・小屋）のメタデータとアニメーション契約
+  - `residents.ts`: `WorldState.residents` と論理クロックから、各小人（Turn 2 の分裂演出を含む）の見た目を計算する純粋関数（Phaser 非依存）
   - `lifeAnimation.ts`: スナップショットから Turn 2 の畑・小屋／調理の火／動物のレベルアップの見た目を計算する純粋関数（Phaser 非依存。共通のレベルアップ演出 `levelUpBlend` は `animation.ts`）
 - `scripts/`: ランタイム世界 PNG を元素材から再生成する Node スクリプト（`deriveWorldAssets.mjs`、小屋用の `deriveHutAsset.mjs`、畑用の `deriveFarmPlotAsset.mjs`）
 - `art-source/turn2/`: 承認済み小屋 JPEG の正本とその可逆 PNG 変換、Turn 2 の Visual Reference

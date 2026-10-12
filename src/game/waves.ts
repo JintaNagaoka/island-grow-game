@@ -1,7 +1,13 @@
-import { BEAT_MS, FARM_WORK_MS, PLANT_WAVE_BEATS, WAVE_DURATIONS_MS } from './timing';
-import type { WorldState } from './worldState';
+import { BEAT_MS, FARM_WORK_MS, PLANT_WAVE_BEATS, SPLIT_WAVE_MS, WAVE_DURATIONS_MS } from './timing';
+import {
+  settleFirstResidentAtFire,
+  settleSecondResidentAtPlot,
+  startSecondResidentWalking,
+  type WorldState,
+} from './worldState';
 
 export type WaveId =
+  | 'human-splits'
   | 'fire-appears'
   | 'human-notices-and-approaches'
   | 'human-warms-up'
@@ -30,10 +36,10 @@ export const FIRE_WARMING_WAVES: readonly Wave[] = [
     complete: (world) => ({ ...world, fireStage: 1 }),
   },
   {
-    // The human notices the fire and walks to it. No persistent state changes.
+    // The human notices the fire and walks to it; the resident ends up at the fire.
     id: 'human-notices-and-approaches',
     durationMs: WAVE_DURATIONS_MS.humanNoticesAndApproaches,
-    complete: (world) => world,
+    complete: settleFirstResidentAtFire,
   },
   {
     id: 'human-warms-up',
@@ -47,14 +53,23 @@ const beats = (count: number): number => Math.round(count * BEAT_MS);
 // Turn 2: the plant event (🌱 after Turn 1). The persistent WorldState changes are
 // the sprout plot (plantStage 1, once the farm has grown in), the shelter→hut, fire→cooking fire and animal→cared-for level-ups;
 // the walk and farm-work Waves are presentation beats whose order the Wave sequence
-// itself guarantees. Population stays 1 and nothing else (animal count, fences,
+// itself guarantees. The population split (1 -> 2) happens at Turn 2 start (splitResident) and nothing else (animal count, fences,
 // ponds) changes.
 export const PLANT_LIFE_WAVES: readonly Wave[] = [
   {
-    // The human walks from the fire to the plot site. No persistent change.
+    // The split level-up at the fire. The population is already 2 (splitResident, at
+    // the accepted selection); both residents stay at the fire until this Wave
+    // completes, when resident 2 starts walking to the plot.
+    id: 'human-splits',
+    durationMs: SPLIT_WAVE_MS,
+    complete: startSecondResidentWalking,
+  },
+  {
+    // Resident 2 (split off at Turn 2 start) walks from the fire to the plot site while
+    // resident 1 keeps waiting at the fire. It has arrived when this Wave completes.
     id: 'human-walks-to-plot',
     durationMs: beats(PLANT_WAVE_BEATS.humanWalksToPlot),
-    complete: (world) => world,
+    complete: settleSecondResidentAtPlot,
   },
   {
     // water1 continuously, exactly 1.5 s. No persistent change.
