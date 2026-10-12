@@ -171,7 +171,7 @@ describe('Turn 2 supplied animation PNGs', () => {
     expect(ANIMAL_EAT_FRAMES.map((f) => f.groundAnchor)).toEqual([{ x: 239, y: 450 }, { x: 311, y: 450 }]);
     expect(COOK_STEAM_FRAMES.map((f) => f.groundAnchor)).toEqual([{ x: 254, y: 479 }, { x: 278, y: 479 }]);
     for (const frame of [...FARM_HARVEST_FRAMES, FARM_WATER_FRAME]) {
-      expect(frame).toMatchObject({ baseScale: 0.22, placementSpace: 'island', placement: { x: 225, y: 724 } });
+      expect(frame).toMatchObject({ baseScale: 0.22, placementSpace: 'island', placement: { x: 334, y: 674 } });
       expect(frame.baseScale).toBe(FARM_BASE_SCALE);
     }
     // The cooking fire is the campfire levelled up: the campfire's own ground point.
@@ -682,15 +682,21 @@ describe('Expanded farm layout', () => {
     expect(FARM_PLOT_TILE.baseScale).toBe(0.08);
   });
 
-  it('spaces the patches out: grass shows between neighbouring components, which never overlap', () => {
-    expect(FARM_GRID.spacing).toBeGreaterThan(1.5);
+  it('keeps the soil patches nearly touching, so the four patches read as one farm (not isolated beds)', () => {
+    // 1 = soil rims just meet. The previous placement used 2 (four isolated beds).
+    expect(FARM_GRID.spacing).toBeGreaterThanOrEqual(0.95);
+    expect(FARM_GRID.spacing).toBeLessThanOrEqual(1.15);
     const pixels = LAYOUT.farmPlotTiles.map((ground) => opaquePixels(FARM_PLOT_TILE, TILE_BYTES, ground));
     for (let a = 0; a < pixels.length; a += 1) {
       for (let b = a + 1; b < pixels.length; b += 1) {
+        // Only the rounded soil rims overlap, and only partly (a sampled share of the art's rounded positions).
         const shared = [...pixels[a]].filter((key) => pixels[b].has(key)).length;
-        expect(shared).toBe(0);
+        expect(shared / pixels[a].size).toBeLessThan(0.25);
       }
     }
+    // The gap between the composite plot's own box and its nearest patch is small (under 12 design px).
+    const nearest = Math.min(...LAYOUT.farmPlotTiles.map((tile) => Math.hypot(tile.x - LAYOUT.plot.x, tile.y - LAYOUT.plot.y)));
+    expect(nearest).toBeLessThan(FARM_TILE_STEP_PX.x * FARM_PLOT_TILE.baseScale * FARM_GRID.spacing * 2);
     // Plant size is unchanged: the spacing, not the scale, sets the footprint.
     expect(FARM_PLOT_TILE.baseScale).toBe(0.08);
   });
@@ -733,10 +739,65 @@ describe('Expanded farm layout', () => {
         expect(overlaps(box, other)).toBe(false);
       }
     }
+    // The farm is entirely above the central reserved space (or entirely left of it), with a margin.
     const central = LAYOUT.growthSpaces.find((space) => space.id === 'central');
-    expect(FARM_BOX.right).toBeLessThan(central?.left ?? 0);
+    expect(Math.max((central?.top ?? 0) - FARM_BOX.bottom, (central?.left ?? 0) - FARM_BOX.right)).toBeGreaterThan(6);
     // A clear lane remains between the farm and the hut for walking.
     expect(HUT_BOX.top - FARM_BOX.bottom).toBeGreaterThan(8);
+  });
+
+  // The previous (too low, too far left) farm anchor, island px / design px.
+  const PREVIOUS_ANCHOR_ISLAND = { x: 225, y: 724 };
+  const PREVIOUS_ANCHOR_DESIGN = { x: 193.4, y: 508.32 };
+
+  it('sits higher and further inward (right) than the previous (225, 724) anchor, toward the reference', () => {
+    expect(FARM_WATER_FRAME.placement.x).toBeGreaterThan(PREVIOUS_ANCHOR_ISLAND.x);
+    expect(FARM_WATER_FRAME.placement.y).toBeLessThan(PREVIOUS_ANCHOR_ISLAND.y);
+    expect(LAYOUT.plot.y).toBeLessThan(PREVIOUS_ANCHOR_DESIGN.y - 20);
+    expect(LAYOUT.plot.x).toBeGreaterThan(PREVIOUS_ANCHOR_DESIGN.x + 40);
+    // Every farm part stays on the island's grass terrace, further from the outer left edge than before.
+    expect(FARM_BOX.left - LAYOUT.island.left).toBeGreaterThan(PREVIOUS_ANCHOR_DESIGN.x - 40 - LAYOUT.island.left + 30);
+  });
+
+  // The small rock baked into the island art. It is neither drawn over, hidden nor moved.
+  const ROCK = (() => {
+    // Rock pixels: opaque island art on this grass terrace that is neither grass nor sand.
+    let [left, top, right, bottom] = [Infinity, Infinity, -Infinity, -Infinity];
+    for (let y = 610; y < 680; y += 1) {
+      for (let x = 205; x < 305; x += 1) {
+        const i = (y * island.width + x) * 4;
+        if (island.pixels[i + 3] > 200 && groundAt(x, y) === 'none') {
+          [left, top, right, bottom] = [Math.min(left, x), Math.min(top, y), Math.max(right, x), Math.max(bottom, y)];
+        }
+      }
+    }
+    const a = { x: ISLAND.placement.x + (left - ISLAND.groundAnchor.x) * ISLAND.baseScale, y: ISLAND.placement.y + (top - ISLAND.groundAnchor.y) * ISLAND.baseScale };
+    const b = { x: ISLAND.placement.x + (right - ISLAND.groundAnchor.x) * ISLAND.baseScale, y: ISLAND.placement.y + (bottom - ISLAND.groundAnchor.y) * ISLAND.baseScale };
+    return { left: a.x, top: a.y, right: b.x, bottom: b.y };
+  })();
+
+  it('finds the baked-in rock where the island art draws it (about 30x20 design px, left of the plot)', () => {
+    expect(ROCK.right - ROCK.left).toBeGreaterThan(20);
+    expect(ROCK.right - ROCK.left).toBeLessThan(45);
+    expect(ROCK.bottom - ROCK.top).toBeGreaterThan(12);
+    expect(ROCK.bottom - ROCK.top).toBeLessThan(30);
+    expect(ROCK.right).toBeLessThan(LAYOUT.plotHuman.x);
+  });
+
+  it('never covers the rock: the Human, composite, every patch and the whole walk keep a margin from it', () => {
+    const margin = 3;
+    const rock = { left: ROCK.left - margin, top: ROCK.top - margin, right: ROCK.right + margin, bottom: ROCK.bottom + margin };
+    // The Human's head and body in every composite frame, the plot and each patch: visible art only.
+    for (const frame of [...FARM_HARVEST_FRAMES, FARM_WATER_FRAME]) {
+      // The main art (a stray accepted speck far left of water1 is not part of the Human or plot).
+      const box = visibleBox(frame, fileBytes(frame), LAYOUT.plot);
+      const main = mainBounds(readPng(fileBytes(frame)));
+      const left = LAYOUT.plot.x + (main.left - groundOrigin(frame).x * frame.width) * frame.baseScale;
+      expect(overlaps({ ...box, left }, rock)).toBe(false);
+    }
+    for (const box of TILE_BOXES) expect(overlaps(box, rock)).toBe(false);
+    // The walk: the Human's whole body box stays off the rock at every step.
+    for (const point of routeSamples()) expect(overlaps({ left: point.x - 8, right: point.x + 8, top: point.y - 52, bottom: point.y + 3 }, rock)).toBe(false);
   });
 
   it('keeps every tile on grass, away from cliffs, water and the sand path', () => {

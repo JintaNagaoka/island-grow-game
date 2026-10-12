@@ -129,8 +129,8 @@ export const LAYOUT = {
     onIsland(399, 933),
     onIsland(400, 917),
     onIsland(401, 877),
-    onIsland(360, 782),
-    onIsland(215, 768),
+    onIsland(360, 800),
+    onIsland(326, 741),
     PLOT_HUMAN,
   ] as readonly Point[],
   // Empty ground on purpose, so later growth has room to appear: the central

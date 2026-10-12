@@ -91,7 +91,9 @@ describe('Turn 2 sequence', () => {
     expect(['up', 'left']).toContain(late?.pose.walk?.direction);
     const directions = new Set<string | undefined>();
     for (let f = 0.05; f < 0.9; f += 0.05) directions.add(computeLifeHuman(inWave('human-walks-to-plot', f))?.pose.walk?.direction);
-    expect(directions.has('left')).toBe(true);
+    // Every leg climbs toward the plot (up the shelter/fire gap, then up-left to the Human's spot).
+    expect([...directions].filter((d) => d !== undefined).every((d) => d === 'up' || d === 'left')).toBe(true);
+    expect(directions.has('up')).toBe(true);
     // Arrival: the approved idle, at the plot, not walking.
     const arrived = computeLifeHuman(inWave('human-walks-to-plot', 0.999));
     expect(arrived?.pose.walk).toBeNull();

@@ -24,11 +24,11 @@ export const TURN2_FRAME_SIZE = 512;
 
 // --- Plot: the supplied composite farm-work art (human + sprout plot in one PNG).
 // The plot's ground point on the island; every farm frame is anchored to it.
-// Left-middle grass terrace at about the animal's height (the Turn 2 Visual
-// Reference), above the hut. It sits far enough left that the whole expanded farm
-// (the Human, this composite and the standalone tiles to its right) stays left of
-// the central growth space.
-const PLOT_PLACEMENT: Point = { x: 225, y: 724 };
+// Left-middle grass terrace (the Turn 2 Visual Reference), above the hut and
+// inward of the outer left cliff. It sits just right of and below the baked-in rock
+// so the Human, composite and patches never cover it, and high enough that the
+// whole farm is above the central growth space (design y < 492), clear of it.
+const PLOT_PLACEMENT: Point = { x: 334, y: 674 };
 
 // The farm frames draw the Human much smaller on their 512px canvas than the
 // approved Human PNGs do (head about 97 px wide against about 200-220 px), so the
@@ -89,10 +89,11 @@ export const FARM_COMPOSITE_PLOT_CENTER_PX: Point = { x: 14, y: -58 };
 // The composite plot is the cell where both indices are 0; every other cell gets
 // one standalone component. 2 x 2 cells = the composite plus 3 components, 16 plants
 // in all (the Visual Reference has about 12). `spacing` multiplies the contact
-// distance (FARM_TILE_STEP_PX) between neighbouring patches, so grass shows between
+// distance (FARM_TILE_STEP_PX) between neighbouring patches (1 = rims just meet),
 // the soil patches like the reference's, and the footprint stays near the
-// reference's without adding copies or enlarging the plants.
-export const FARM_GRID = { along: 2, across: 2, compositeCells: 1, spacing: 2 } as const;
+// reference's without adding copies or enlarging the plants. 1.05 leaves the soil
+// patches nearly touching, so the four patches read as one farm.
+export const FARM_GRID = { along: 2, across: 2, compositeCells: 1, spacing: 1.05 } as const;
 
 export const FARM_WATER_FRAME: Turn2Frame = {
   ...FARM_COMMON,
