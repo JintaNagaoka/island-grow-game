@@ -1,6 +1,6 @@
 import { DEFAULT_PLAYBACK_SPEED, assertValidPlaybackSpeed, toLogicalDeltaMs } from './timing';
 import { FIRE_WARMING_WAVES, PLANT_LIFE_WAVES, type Wave, type WaveId } from './waves';
-import { ELEMENTS, createInitialWorldState, type Element, type WorldState } from './worldState';
+import { ELEMENTS, createInitialWorldState, splitResident, type Element, type WorldState } from './worldState';
 
 export type SelectRejection =
   | 'input-locked'
@@ -88,6 +88,9 @@ export class SliceGame {
 
     this.waves = this.turnWaves[element] ?? this.waves;
     this.world = { ...this.world, selectedElements: [...this.world.selectedElements, element] };
+    // Turn 2 begins with the population split, applied here (not by a Wave or an
+    // animation) so it is authoritative from the accepted selection onward.
+    if (element === 'plant') this.world = splitResident(this.world);
     this.phase = 'playing';
     this.waveIndex = 0;
     this.waveElapsedMs = 0;

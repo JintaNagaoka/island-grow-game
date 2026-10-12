@@ -5,7 +5,6 @@ import { ELEMENTS, type Element } from '../game/worldState';
 import {
   computeEnvironmentMotion,
   computeFireVisual,
-  computeHumanPose,
   computeWalkPreviewPose,
   type HumanPose,
 } from './animation';
@@ -30,9 +29,9 @@ import {
   computeCookingFireVisual,
   computeFarmTiles,
   computeFarmVisual,
-  computeLifeHuman,
   computeShelterVisual,
 } from './lifeAnimation';
+import { computeResidentVisuals, computeSplitEffect, type ResidentVisual } from './residents';
 import {
   ANIMAL_EAT_FRAMES,
   COOK_STEAM_FRAMES,
@@ -70,6 +69,12 @@ interface ElementButton {
   state: ButtonState | null;
 }
 
+interface ResidentView {
+  readonly sprite: Phaser.GameObjects.Sprite;
+  readonly shadow: Phaser.GameObjects.Graphics;
+  readonly cold: Phaser.GameObjects.Graphics;
+}
+
 // Fixed-camera miniature presentation. Gameplay lives entirely in SliceGame;
 // this scene turns snapshots into toy-like shapes and clock-driven movement.
 export class IslandScene extends Phaser.Scene {
@@ -98,10 +103,11 @@ export class IslandScene extends Phaser.Scene {
   private fireSprite!: Phaser.GameObjects.Image;
   private fireGlow!: Phaser.GameObjects.Graphics;
   private fireSparks!: Phaser.GameObjects.Graphics;
-  private shadow!: Phaser.GameObjects.Graphics;
-  // The single human renderer: one Sprite for every pose and walk frame.
-  private human!: Phaser.GameObjects.Sprite;
-  private humanCold!: Phaser.GameObjects.Graphics;
+  // One view per resident id: a Sprite for every pose and walk frame. Views are
+  // created on first sight of an id in the snapshot; the Scene never decides who exists.
+  private residentViews = new Map<string, ResidentView>();
+  private splitGlow!: Phaser.GameObjects.Graphics;
+  private splitSparkles!: Phaser.GameObjects.Graphics;
 
   constructor() {
     super(ISLAND_SCENE_KEY);
@@ -136,7 +142,9 @@ export class IslandScene extends Phaser.Scene {
     this.buttons = [];
     this.cameras.main.setBackgroundColor(WORLD_WATER_COLOR);
     this.createWorld();
-    this.createHuman();
+    this.residentViews = new Map();
+    this.splitGlow = this.add.graphics().setDepth(LAYOUT.humanWarm.y - 0.4);
+    this.splitSparkles = this.add.graphics().setDepth(LAYOUT.humanWarm.y + 4);
     this.createButtons();
     this.render(this.slice.snapshot());
   }
@@ -305,29 +313,57 @@ export class IslandScene extends Phaser.Scene {
   }
 
   private renderHuman(snapshot: SliceSnapshot): void {
-    const life = WALK_PREVIEW_ENABLED ? null : computeLifeHuman(snapshot);
-    const pose = WALK_PREVIEW_ENABLED
-      ? computeWalkPreviewPose(snapshot.clockMs, snapshot.world.isCold)
-      : (life?.pose ?? computeHumanPose(snapshot));
-    const alpha = life?.alpha ?? 1;
-    this.human.setAlpha(alpha).setVisible(alpha > 0);
-    this.human.setPosition(pose.x, pose.y - pose.lift);
-    this.human.setOrigin(pose.originX, pose.originY);
-    this.applyHumanFrame(pose);
-    this.human.setScale(pose.facing * HUMAN_SPRITE_SCALE, HUMAN_SPRITE_SCALE);
-    this.human.setDepth(pose.y + 2);
-    this.renderHumanCold(pose);
-
-    const shadowScale = 1 - Math.min(0.32, pose.lift / 28);
-    this.shadow.clear();
-    this.shadow.fillStyle(0x183321, 0.28 * shadowScale * alpha);
-    this.shadow.fillEllipse(
-      pose.x,
-      pose.y + 2,
-      34 * shadowScale,
-      8 * shadowScale,
+    if (WALK_PREVIEW_ENABLED) {
+      const [first] = computeResidentVisuals(snapshot);
+      const pose = computeWalkPreviewPose(snapshot.clockMs, snapshot.world.isCold);
+      this.renderResident(first.id, { ...first, pose, alpha: 1, scale: 1, shakeX: 0 });
+      return;
+    }
+    for (const visual of computeResidentVisuals(snapshot)) {
+      this.renderResident(visual.id, visual);
+    }
+    const split = computeSplitEffect(snapshot);
+    this.drawLevelUp(
+      this.splitGlow,
+      this.splitSparkles,
+      split?.ground ?? LAYOUT.humanWarm,
+      HUMAN_FRAME_SIZE * HUMAN_SPRITE_SCALE * 0.6,
+      split?.glow ?? 0,
+      split?.sparkle ?? null,
     );
-    this.shadow.setDepth(pose.y);
+  }
+
+  private residentView(id: string): ResidentView {
+    let view = this.residentViews.get(id);
+    if (view === undefined) {
+      const shadow = this.add.graphics();
+      const initial = selectHumanAsset('cold', true);
+      const sprite = this.add
+        .sprite(LAYOUT.humanStart.x, LAYOUT.humanStart.y, initial.textureKey)
+        .setScale(HUMAN_SPRITE_SCALE);
+      view = { sprite, shadow, cold: this.add.graphics() };
+      this.residentViews.set(id, view);
+    }
+    return view;
+  }
+
+  private renderResident(id: string, visual: ResidentVisual): void {
+    const view = this.residentView(id);
+    const { pose, alpha } = visual;
+    const x = pose.x + visual.shakeX;
+    view.sprite.setAlpha(alpha).setVisible(alpha > 0);
+    view.sprite.setPosition(x, pose.y - pose.lift);
+    view.sprite.setOrigin(pose.originX, pose.originY);
+    this.applyHumanFrame(view.sprite, pose);
+    view.sprite.setScale(pose.facing * HUMAN_SPRITE_SCALE * visual.scale, HUMAN_SPRITE_SCALE * visual.scale);
+    view.sprite.setDepth(pose.y + 2);
+    this.renderHumanCold(view.cold, pose);
+
+    const shadowScale = (1 - Math.min(0.32, pose.lift / 28)) * visual.scale;
+    view.shadow.clear();
+    view.shadow.fillStyle(0x183321, 0.28 * shadowScale * alpha);
+    view.shadow.fillEllipse(x, pose.y + 2, 34 * shadowScale, 8 * shadowScale);
+    view.shadow.setDepth(pose.y);
   }
 
   // Walk poses play the per-direction Phaser animation; planHumanAnimation()
@@ -336,12 +372,12 @@ export class IslandScene extends Phaser.Scene {
   // logical clock selects, so playback speed and frame-time hiccups cannot
   // desynchronize it, and no rule ever waits on animation completion. Any
   // non-walk pose stops the animation, so nothing keeps walking after arrival.
-  private applyHumanFrame(pose: HumanPose): void {
-    const anims = this.human.anims;
+  private applyHumanFrame(sprite: Phaser.GameObjects.Sprite, pose: HumanPose): void {
+    const anims = sprite.anims;
     const playingKey = anims.isPlaying ? (anims.currentAnim?.key ?? null) : null;
     const command = planHumanAnimation(playingKey, pose.walk);
     if (command.type === 'start') {
-      this.human.play(command.key, true);
+      sprite.play(command.key, true);
     } else if (command.type === 'stop') {
       anims.stop();
     }
@@ -352,13 +388,12 @@ export class IslandScene extends Phaser.Scene {
       anims.setCurrentFrame(animation.frames[command.frameIndex]);
       return;
     }
-    if (this.human.texture.key !== pose.asset) this.human.setTexture(pose.asset);
+    if (sprite.texture.key !== pose.asset) sprite.setTexture(pose.asset);
   }
 
   // Draws the cold marks over a walk frame, in the sprite's own source-pixel
   // space so they track the frame's origin and the shared sprite scale.
-  private renderHumanCold(pose: HumanPose): void {
-    const g = this.humanCold;
+  private renderHumanCold(g: Phaser.GameObjects.Graphics, pose: HumanPose): void {
     g.clear();
     if (!pose.coldOverlay || !pose.walk) return;
     const shapes = computeColdOverlay(pose.walk.direction);
@@ -502,15 +537,6 @@ export class IslandScene extends Phaser.Scene {
         .on('pointerdown', () => this.slice.selectElement(element));
       this.buttons.push({ element, background, icon, caption, state: null });
     });
-  }
-
-  private createHuman(): void {
-    this.shadow = this.add.graphics();
-    const initial = selectHumanAsset('cold', true);
-    this.human = this.add
-      .sprite(LAYOUT.humanStart.x, LAYOUT.humanStart.y, initial.textureKey)
-      .setScale(HUMAN_SPRITE_SCALE);
-    this.humanCold = this.add.graphics();
   }
 
   // A sprite standing on its ground anchor: the origin is the anchor as a

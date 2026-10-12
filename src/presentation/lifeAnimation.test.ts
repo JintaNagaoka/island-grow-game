@@ -324,7 +324,8 @@ describe('Turn 2 sequence', () => {
         sawBoth = true;
         expect(snapshot.activeWave?.id).toBe('animal-eats');
       }
-      expect(snapshot.world.population).toBe(1);
+      // Population counts residents, not animals: the split makes it 2 while the animal stays one.
+      expect(snapshot.world.population).toBe(2);
       game.advance(20);
     }
     expect(sawBoth).toBe(true);

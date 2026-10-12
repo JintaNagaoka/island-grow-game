@@ -24,6 +24,11 @@ export const PLANT_WAVE_BEATS = {
   animalEats: 2.5,
 } as const;
 
+// The Turn 2 opening split (ぷるぷる → ポンッ) at the fire, in logical milliseconds.
+// Notion does not define these numbers. Human Review approved 600 ms together with
+// the 2.5 px / 9 Hz shake and 0.6x pop on Cloudflare Pages on 2026-10-12.
+export const SPLIT_WAVE_MS = 600;
+
 // The two farm-work poses are specified in seconds, not beats: water1 for exactly
 // 1.5 s, then harvest2 for exactly 1.5 s (logical milliseconds at 1x).
 export const FARM_WORK_MS = {

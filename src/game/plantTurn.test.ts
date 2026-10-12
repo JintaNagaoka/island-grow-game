@@ -10,6 +10,7 @@ import {
   hasCookingFire,
   hasSproutPlot,
   hasUpgradedHut,
+  splitResident,
 } from './worldState';
 
 const TURN1_MS = Object.values(WAVE_DURATIONS_MS).reduce((sum, ms) => sum + ms, 0);
@@ -73,7 +74,7 @@ describe('Turn 2 availability', () => {
     expect(snapshot.inputLocked).toBe(true);
     expect(snapshot.selectableElements).toEqual([]);
     expect(snapshot.world.selectedElements).toEqual(['fire', 'plant']);
-    expect(snapshot.activeWave).toMatchObject({ id: 'human-walks-to-plot', index: 0, progress: 0 });
+    expect(snapshot.activeWave).toMatchObject({ id: 'human-splits', index: 0, progress: 0 });
     // Nothing persistent has changed yet.
     expect(snapshot.world.plantStage).toBe(0);
     expect(snapshot.world.shelterStage).toBe(1);
@@ -97,7 +98,7 @@ describe('Turn 2 input lock', () => {
 
   it('cannot start a second playback by mashing plant (or anything else)', () => {
     const game = inTurn2();
-    game.advance(PLANT_LIFE_WAVES[0].durationMs + 100);
+    game.advance(WAVE_MS['human-splits'] + WAVE_MS['human-walks-to-plot'] + 100);
     for (let i = 0; i < 30; i += 1) for (const element of ELEMENTS) game.selectElement(element);
     expect(game.snapshot().world.selectedElements).toEqual(['fire', 'plant']);
     expect(game.snapshot().activeWave?.id).toBe('human-waters-plot');
@@ -124,18 +125,22 @@ describe('Turn 2 completion', () => {
       plantStage: 1,
       shelterStage: 2,
       animalStage: 2,
-      humanStage: 1,
-      population: 1,
+      humanStage: 2,
+      population: 2,
+      residents: [
+        { id: 'resident-1', place: 'fire', target: null, motion: 'idle' },
+        { id: 'resident-2', place: 'plot', target: null, motion: 'idle' },
+      ],
       isCold: false,
     });
     expect(hasSproutPlot(snapshot.world)).toBe(true);
     expect(hasUpgradedHut(snapshot.world)).toBe(true);
     expect(hasCookingFire(snapshot.world)).toBe(true);
     expect(hasCaredForAnimal(snapshot.world)).toBe(true);
-    // Population is unchanged and WorldState has no animal-count, fence, pond or shrine field to change.
-    expect(snapshot.world.population).toBe(1);
+    // The population has split to two residents; WorldState has no animal-count, fence, pond or shrine field to change.
+    expect(snapshot.world.population).toBe(2);
     expect(Object.keys(snapshot.world).sort()).toEqual(
-      ['animalStage', 'fireStage', 'humanStage', 'isCold', 'plantStage', 'population', 'selectedElements', 'shelterStage', 'turn'],
+      ['animalStage', 'fireStage', 'humanStage', 'isCold', 'plantStage', 'population', 'residents', 'selectedElements', 'shelterStage', 'turn'],
     );
   });
 
@@ -155,6 +160,7 @@ describe('Turn 2 completion', () => {
 
   it('declares the Waves in the specified order with the specified effects', () => {
     expect(PLANT_IDS).toEqual([
+      'human-splits',
       'human-walks-to-plot',
       'human-waters-plot',
       'human-harvests-plot',
@@ -163,8 +169,17 @@ describe('Turn 2 completion', () => {
       'cooking-starts',
       'animal-eats',
     ]);
-    const base = { ...createInitialWorldState(), isCold: false, fireStage: 1 };
+    // The world as it is when Turn 2's Waves run: split already applied at selection.
+    const base = splitResident({ ...createInitialWorldState(), isCold: false, fireStage: 1 });
     const effects = new Map(PLANT_LIFE_WAVES.map((wave) => [wave.id, wave.complete(base)]));
+    const [first, second] = base.residents;
+    // Resident 2 starts walking only when the split Wave completes, and reaches the plot when the walk Wave does.
+    const walking = { ...second, target: 'plot', motion: 'walking' };
+    expect(effects.get('human-splits')).toEqual({ ...base, residents: [first, walking] });
+    expect(effects.get('human-walks-to-plot')).toEqual({
+      ...base,
+      residents: [first, { ...second, place: 'plot', target: null, motion: 'idle' }],
+    });
     // The sprout plot is established when the water Wave completes; the farm has expanded when its Wave completes.
     // plantStage stays 0 through the walk, water1 and harvest2; it becomes 1 only when farm-expands completes.
     expect(effects.get('human-waters-plot')).toEqual(base);
@@ -176,7 +191,8 @@ describe('Turn 2 completion', () => {
     // The one animal levels up from 1 to 2; population and everything else is untouched.
     expect(effects.get('animal-eats')).toEqual({ ...base, animalStage: 2 });
     const persistent = ['human-waters-plot', 'farm-expands', 'shelter-levels-up', 'cooking-starts', 'animal-eats'];
-    for (const id of PLANT_IDS.filter((id) => !persistent.includes(id))) {
+    const resident = ['human-splits', 'human-walks-to-plot'];
+    for (const id of PLANT_IDS.filter((id) => !persistent.includes(id) && !resident.includes(id))) {
       expect(effects.get(id)).toEqual(base);
     }
   });
@@ -184,10 +200,10 @@ describe('Turn 2 completion', () => {
   it('applies each persistent effect only when its own Wave completes', () => {
     const game = inTurn2();
     const world = () => game.snapshot().world;
-    const [walk, water, harvest, expand, hut] = PLANT_LIFE_WAVES.map((wave) => wave.durationMs);
+    const [split, walk, water, harvest, expand, hut] = PLANT_LIFE_WAVES.map((wave) => wave.durationMs);
 
-    // plantStage stays 0 through the walk, the 1.5 s water1 Wave and the 1.5 s harvest2 Wave.
-    game.advance(walk + water - 1);
+    // plantStage stays 0 through the split, the walk, the 1.5 s water1 Wave and the 1.5 s harvest2 Wave.
+    game.advance(split + walk + water - 1);
     expect(game.snapshot().activeWave?.id).toBe('human-waters-plot');
     expect(world().plantStage).toBe(0);
     game.advance(1);
@@ -219,7 +235,7 @@ describe('Turn 2 completion', () => {
     expect(game.snapshot().phase).toBe('playing');
 
     // Cooking: the fire is still the campfire until the cooking Wave completes.
-    const cooking = PLANT_LIFE_WAVES[5].durationMs;
+    const cooking = WAVE_MS['cooking-starts'];
     game.advance(cooking - 1);
     expect(hasCookingFire(world())).toBe(false);
     expect(world().fireStage).toBe(1);
@@ -229,7 +245,7 @@ describe('Turn 2 completion', () => {
     expect(hasCaredForAnimal(world())).toBe(false);
 
     // Feeding: the animal is still wild until the feeding Wave completes; then it is cared for, still one.
-    const feeding = PLANT_LIFE_WAVES[6].durationMs;
+    const feeding = WAVE_MS['animal-eats'];
     expect(game.snapshot().activeWave?.id).toBe('animal-eats');
     game.advance(feeding - 1);
     expect(hasCaredForAnimal(world())).toBe(false);
@@ -237,7 +253,7 @@ describe('Turn 2 completion', () => {
     game.advance(1);
     expect(hasCaredForAnimal(world())).toBe(true);
     expect(world().animalStage).toBe(2);
-    expect(world().population).toBe(1);
+    expect(world().population).toBe(2);
     expect(game.snapshot().phase).toBe('completed');
   });
 
@@ -250,6 +266,9 @@ describe('Turn 2 completion', () => {
     })();
     expect({
       ...turn2,
+      humanStage: turn1.humanStage,
+      population: turn1.population,
+      residents: turn1.residents,
       plantStage: turn1.plantStage,
       shelterStage: turn1.shelterStage,
       fireStage: turn1.fireStage,
@@ -379,7 +398,8 @@ describe('Turn 2 logical clock', () => {
 
   it('lays the Waves out on the 97 BPM beat grid, except the two farm-work poses fixed at 1.5 s', () => {
     for (const wave of PLANT_LIFE_WAVES) {
-      if (wave.id === 'human-waters-plot' || wave.id === 'human-harvests-plot') continue;
+      // The split is a provisional Human Review duration, not a beat-grid step.
+      if (wave.id === 'human-splits' || wave.id === 'human-waters-plot' || wave.id === 'human-harvests-plot') continue;
       const beats = wave.durationMs / BEAT_MS;
       expect(Math.abs(beats * 2 - Math.round(beats * 2))).toBeLessThan(0.01);
     }
@@ -389,10 +409,10 @@ describe('Turn 2 logical clock', () => {
   it('runs water1 for exactly 1500 ms, then harvest2 for exactly 1500 ms, then farm-expands (logical ms)', () => {
     expect(WAVE_MS['human-waters-plot']).toBe(1500);
     expect(WAVE_MS['human-harvests-plot']).toBe(1500);
-    const order = PLANT_IDS.slice(0, 4);
+    const order = PLANT_IDS.slice(1, 5);
     expect(order).toEqual(['human-walks-to-plot', 'human-waters-plot', 'human-harvests-plot', 'farm-expands']);
     const game = inTurn2();
-    game.advance(WAVE_MS['human-walks-to-plot']);
+    game.advance(WAVE_MS['human-splits'] + WAVE_MS['human-walks-to-plot']);
     expect(game.snapshot().activeWave).toMatchObject({ id: 'human-waters-plot', elapsedMs: 0, durationMs: 1500 });
     game.advance(1499);
     expect(game.snapshot().activeWave).toMatchObject({ id: 'human-waters-plot', elapsedMs: 1499 });
@@ -406,7 +426,7 @@ describe('Turn 2 logical clock', () => {
     for (const speed of [0.25, 0.5, 2, 4]) {
       const game = inTurn2();
       game.setPlaybackSpeed(speed);
-      game.advance(WAVE_MS['human-walks-to-plot'] / speed);
+      game.advance((WAVE_MS['human-splits'] + WAVE_MS['human-walks-to-plot']) / speed);
       expect(game.snapshot().activeWave?.id).toBe('human-waters-plot');
       game.advance(1499 / speed);
       expect(game.snapshot().activeWave?.id).toBe('human-waters-plot');

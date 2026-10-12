@@ -365,9 +365,12 @@ describe('Turn 2 animation contract', () => {
     ]);
     // The sequence is the Waves: the same durations, in the same order, before the expansion Wave.
     const ids = PLANT_LIFE_WAVES.map((wave) => wave.id);
-    expect(ids.slice(1, 4)).toEqual(['human-waters-plot', 'human-harvests-plot', 'farm-expands']);
-    expect(PLANT_LIFE_WAVES[1].durationMs).toBe(FARM_WORK_SEQUENCE[0].durationMs);
-    expect(PLANT_LIFE_WAVES[2].durationMs).toBe(FARM_WORK_SEQUENCE[1].durationMs);
+    const afterWalk = ids.indexOf('human-walks-to-plot') + 1;
+    expect(afterWalk).toBeGreaterThan(0);
+    expect(ids.slice(afterWalk, afterWalk + 3)).toEqual(['human-waters-plot', 'human-harvests-plot', 'farm-expands']);
+    const waveMs = (id: string) => PLANT_LIFE_WAVES.find((wave) => wave.id === id)?.durationMs;
+    expect(waveMs('human-waters-plot')).toBe(FARM_WORK_SEQUENCE[0].durationMs);
+    expect(waveMs('human-harvests-plot')).toBe(FARM_WORK_SEQUENCE[1].durationMs);
   });
 
   it('plays eating as eat1 -> eat2 and the cooking fire as steam1 -> steam2 (the ZIP sequence order)', () => {
@@ -944,8 +947,10 @@ describe('Turn 2 layout (360x640 and 390x844 share the 720x1280 design space)', 
 
   it('finishes the walk inside the walk Wave, with time to stand before the plot appears', () => {
     const duration = walkRouteDurationMs(LAYOUT.humanPlotRoute);
-    expect(duration).toBeLessThan(PLANT_LIFE_WAVES[0].durationMs);
-    expect(PLANT_LIFE_WAVES[0].durationMs - duration).toBeLessThan(900);
+    const walkWave = PLANT_LIFE_WAVES.find((wave) => wave.id === 'human-walks-to-plot');
+    expect(walkWave).toBeDefined();
+    expect(duration).toBeLessThan(walkWave?.durationMs ?? 0);
+    expect((walkWave?.durationMs ?? 0) - duration).toBeLessThan(900);
   });
 });
 
