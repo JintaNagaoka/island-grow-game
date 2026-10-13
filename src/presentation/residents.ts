@@ -1,6 +1,6 @@
 import type { SliceSnapshot } from '../game/sliceGame';
-import type { Resident } from '../game/worldState';
-import { clamp01, computeHumanPose, easeOutBack, type HumanPose } from './animation';
+import { THIRD_RESIDENT_ID, type Resident } from '../game/worldState';
+import { clamp01, computeHumanPose, easeOutBack, stillPose, type HumanPose } from './animation';
 import { LAYOUT } from './layout';
 import { computeLifeHuman } from './lifeAnimation';
 
@@ -38,6 +38,11 @@ function splitProgress(snapshot: SliceSnapshot): number | null {
   return wave?.id === 'human-splits' ? clamp01(wave.progress) : null;
 }
 
+function thirdSplitProgress(snapshot: SliceSnapshot): number | null {
+  const wave = snapshot.activeWave;
+  return wave?.id === 'human-splits-third' ? clamp01(wave.progress) : null;
+}
+
 // A resident working or walking toward the plot follows the Turn 2 route/farm art;
 // one that waits at the fire keeps the Turn 1 completed pose.
 const isFarmResident = (resident: Resident): boolean =>
@@ -45,8 +50,43 @@ const isFarmResident = (resident: Resident): boolean =>
 
 export function computeResidentVisuals(snapshot: SliceSnapshot): readonly ResidentVisual[] {
   const split = splitProgress(snapshot);
+  const thirdSplit = thirdSplitProgress(snapshot);
   const clockSeconds = snapshot.clockMs / 1000;
   return snapshot.world.residents.map((resident, index): ResidentVisual => {
+    if (resident.id === THIRD_RESIDENT_ID) {
+      if (thirdSplit !== null) {
+        const pop = clamp01((thirdSplit - SPLIT_SHAKE_END) / (1 - SPLIT_SHAKE_END));
+        return {
+          id: resident.id,
+          pose: stillPose('idle', snapshot.world.isCold, LAYOUT.plotHuman),
+          alpha: thirdSplit < SPLIT_SHAKE_END ? 0 : 1,
+          scale: 0.6 + 0.4 * easeOutBack(pop),
+          shakeX: 0,
+        };
+      }
+      const actionWave = snapshot.activeWave?.id;
+      if (
+        actionWave === 'human-gathers-stone' ||
+        actionWave === 'stone-workshop-built' ||
+        actionWave === 'settlement-expands' ||
+        actionWave === 'livestock-domesticated'
+      ) {
+        return {
+          id: resident.id,
+          pose: stillPose('idle', snapshot.world.isCold, LAYOUT.workshopHuman),
+          alpha: 0,
+          scale: 1,
+          shakeX: 0,
+        };
+      }
+      return {
+        id: resident.id,
+        pose: stillPose('idle', snapshot.world.isCold, LAYOUT.workshopHuman),
+        alpha: 1,
+        scale: 1,
+        shakeX: 0,
+      };
+    }
     if (!isFarmResident(resident)) {
       // At the fire: the Turn 1 completed pose. During the split every resident
       // shares this exact ground point; only the original shakes and the new pops.
@@ -84,6 +124,8 @@ export function computeResidentVisuals(snapshot: SliceSnapshot): readonly Reside
 // The warm glow and sparkles of the split, at the Turn 1 completed position.
 export function computeSplitEffect(snapshot: SliceSnapshot): SplitEffect | null {
   const split = splitProgress(snapshot);
-  if (split === null) return null;
-  return { ground: LAYOUT.humanWarm, glow: Math.sin(Math.PI * split), sparkle: split };
+  if (split !== null) return { ground: LAYOUT.humanWarm, glow: Math.sin(Math.PI * split), sparkle: split };
+  const third = thirdSplitProgress(snapshot);
+  if (third !== null) return { ground: LAYOUT.plotHuman, glow: Math.sin(Math.PI * third), sparkle: third };
+  return null;
 }

@@ -25,6 +25,12 @@ describe('initial state', () => {
       plantStage: 0,
       shelterStage: 1,
       animalStage: 1,
+      stoneStage: 0,
+      caveStage: 0,
+      riverStage: 0,
+      dwellingCount: 1,
+      animalCount: 1,
+      livestockFacilitiesStage: 0,
       humanStage: 1,
       population: 1,
       residents: [{ id: 'resident-1', place: 'start', target: null, motion: 'idle' }],
@@ -80,6 +86,12 @@ describe('fire selection', () => {
       plantStage: 0,
       shelterStage: 1,
       animalStage: 1,
+      stoneStage: 0,
+      caveStage: 0,
+      riverStage: 0,
+      dwellingCount: 1,
+      animalCount: 1,
+      livestockFacilitiesStage: 0,
       humanStage: 1,
       population: 1,
       residents: [{ id: 'resident-1', place: 'fire', target: null, motion: 'idle' }],
@@ -135,7 +147,7 @@ describe('input lock during Wave playback', () => {
 });
 
 describe('unimplemented elements', () => {
-  it.each(['rock', 'water'] as const)(
+  it.each(['water'] as const)(
     'rejects %s on the initial screen without starting any progression',
     (element) => {
       const game = new SliceGame();
@@ -148,13 +160,21 @@ describe('unimplemented elements', () => {
     },
   );
 
-  it.each(['rock', 'water'] as const)('rejects %s after completion', (element) => {
+  it.each(['water'] as const)('rejects %s after completion', (element) => {
     const game = new SliceGame();
     game.selectElement('fire');
     playToEnd(game);
     const completed = game.snapshot();
     expect(game.selectElement(element)).toEqual({ accepted: false, reason: 'not-implemented' });
     expect(game.snapshot()).toEqual(completed);
+  });
+
+  it('keeps rock prerequisite-gated until plant has completed', () => {
+    const game = new SliceGame();
+    expect(game.selectElement('rock')).toEqual({ accepted: false, reason: 'prerequisite-not-met' });
+    game.selectElement('fire');
+    playToEnd(game);
+    expect(game.selectElement('rock')).toEqual({ accepted: false, reason: 'prerequisite-not-met' });
   });
 });
 

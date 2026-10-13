@@ -60,7 +60,7 @@ describe('Turn 2 availability', () => {
     const game = afterTurn1();
     expect(game.snapshot().phase).toBe('completed');
     expect(game.snapshot().selectableElements).toEqual(['plant']);
-    expect(game.selectElement('rock')).toEqual({ accepted: false, reason: 'not-implemented' });
+    expect(game.selectElement('rock')).toEqual({ accepted: false, reason: 'prerequisite-not-met' });
     expect(game.selectElement('water')).toEqual({ accepted: false, reason: 'not-implemented' });
     expect(game.selectElement('fire')).toEqual({ accepted: false, reason: 'already-selected' });
     expect(game.snapshot().world.selectedElements).toEqual(['fire']);
@@ -125,6 +125,12 @@ describe('Turn 2 completion', () => {
       plantStage: 1,
       shelterStage: 2,
       animalStage: 2,
+      stoneStage: 0,
+      caveStage: 0,
+      riverStage: 0,
+      dwellingCount: 1,
+      animalCount: 1,
+      livestockFacilitiesStage: 0,
       humanStage: 2,
       population: 2,
       residents: [
@@ -140,18 +146,17 @@ describe('Turn 2 completion', () => {
     // The population has split to two residents; WorldState has no animal-count, fence, pond or shrine field to change.
     expect(snapshot.world.population).toBe(2);
     expect(Object.keys(snapshot.world).sort()).toEqual(
-      ['animalStage', 'fireStage', 'humanStage', 'isCold', 'plantStage', 'population', 'residents', 'selectedElements', 'shelterStage', 'turn'],
+      ['animalCount', 'animalStage', 'caveStage', 'dwellingCount', 'fireStage', 'humanStage', 'isCold', 'livestockFacilitiesStage', 'plantStage', 'population', 'residents', 'riverStage', 'selectedElements', 'shelterStage', 'stoneStage', 'turn'],
     );
   });
 
-  it('rejects every element after Turn 2 completes, without changing state', () => {
+  it('opens rock after Turn 2 and still rejects selected or unimplemented elements', () => {
     const game = inTurn2();
     game.advance(TURN2_MS);
     const completed = game.snapshot();
-    expect(completed.selectableElements).toEqual([]);
+    expect(completed.selectableElements).toEqual(['rock']);
     expect(game.selectElement('plant')).toEqual({ accepted: false, reason: 'already-selected' });
     expect(game.selectElement('fire')).toEqual({ accepted: false, reason: 'already-selected' });
-    expect(game.selectElement('rock')).toEqual({ accepted: false, reason: 'not-implemented' });
     expect(game.selectElement('water')).toEqual({ accepted: false, reason: 'not-implemented' });
     expect(game.snapshot()).toEqual(completed);
     game.advance(100_000);

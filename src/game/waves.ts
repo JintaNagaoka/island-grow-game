@@ -1,8 +1,11 @@
-import { BEAT_MS, FARM_WORK_MS, PLANT_WAVE_BEATS, SPLIT_WAVE_MS, WAVE_DURATIONS_MS } from './timing';
+import { BEAT_MS, FARM_WORK_MS, PLANT_WAVE_BEATS, ROCK_WAVE_MS, SPLIT_WAVE_MS, WAVE_DURATIONS_MS } from './timing';
 import {
+  settleThirdResidentAtWorkshop,
+  settleThirdResidentAtCave,
   settleFirstResidentAtFire,
   settleSecondResidentAtPlot,
   startSecondResidentWalking,
+  startThirdResidentWalking,
   type WorldState,
 } from './worldState';
 
@@ -17,7 +20,12 @@ export type WaveId =
   | 'farm-expands'
   | 'shelter-levels-up'
   | 'cooking-starts'
-  | 'animal-eats';
+  | 'animal-eats'
+  | 'human-splits-third'
+  | 'human-gathers-stone'
+  | 'stone-workshop-built'
+  | 'settlement-expands'
+  | 'livestock-domesticated';
 
 // A Wave is one timed step of an Event. Its WorldState effect is applied by
 // game logic when the Wave's logical duration elapses, never by an animation
@@ -107,5 +115,47 @@ export const PLANT_LIFE_WAVES: readonly Wave[] = [
     id: 'animal-eats',
     durationMs: beats(PLANT_WAVE_BEATS.animalEats),
     complete: (world) => ({ ...world, animalStage: 2 }),
+  },
+];
+
+// Turn 3: stone work is the serial cause. Once the workshop is usable, the
+// settlement changes are grouped into a single Wave, followed by livestock.
+// Completion callbacks alone commit durable state.
+export const ROCK_SETTLEMENT_WAVES: readonly Wave[] = [
+  {
+    id: 'human-splits-third',
+    durationMs: ROCK_WAVE_MS.humanSplitsThird,
+    complete: startThirdResidentWalking,
+  },
+  {
+    id: 'human-gathers-stone',
+    durationMs: ROCK_WAVE_MS.humanGathersStone,
+    complete: settleThirdResidentAtCave,
+  },
+  {
+    id: 'stone-workshop-built',
+    durationMs: ROCK_WAVE_MS.stoneWorkshopBuilt,
+    complete: (world) => ({ ...settleThirdResidentAtWorkshop(world), stoneStage: 1 }),
+  },
+  {
+    id: 'settlement-expands',
+    durationMs: ROCK_WAVE_MS.settlementExpands,
+    complete: (world) => ({
+      ...world,
+      plantStage: 2,
+      dwellingCount: 2,
+      caveStage: 1,
+      riverStage: 1,
+    }),
+  },
+  {
+    id: 'livestock-domesticated',
+    durationMs: ROCK_WAVE_MS.livestockDomesticated,
+    complete: (world) => ({
+      ...world,
+      animalStage: 3,
+      animalCount: 2,
+      livestockFacilitiesStage: 1,
+    }),
   },
 ];
