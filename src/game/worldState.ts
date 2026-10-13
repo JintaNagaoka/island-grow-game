@@ -4,7 +4,7 @@ export type Element = (typeof ELEMENTS)[number];
 
 // Named places a resident can be at or head for. Pixel positions belong to
 // Presentation; the game only knows which place a resident is in.
-export type ResidentPlace = 'start' | 'fire' | 'plot' | 'cave' | 'workshop';
+export type ResidentPlace = 'start' | 'fire' | 'plot' | 'cave' | 'workshop' | 'livestock';
 export type ResidentMotion = 'idle' | 'walking';
 
 // One member of the population: a stable unique id plus the durable state its
@@ -92,14 +92,14 @@ export function splitResident(world: WorldState): WorldState {
   return { ...world, humanStage: 2, population: residents.length, residents };
 }
 
-// Turn 3 start: the third resident appears once at the established plot. The
-// subsequent Waves move it through the cave gathering site to the workshop;
-// population is never derived from presentation objects.
+// Turn 3 start: resident 1 splits again at the fire and the third resident
+// appears there once. Subsequent Waves move it through the cave gathering site
+// to the workshop; population is never derived from presentation objects.
 export function addThirdResident(world: WorldState): WorldState {
   if (world.residents.some((resident) => resident.id === THIRD_RESIDENT_ID)) return world;
   const residents: readonly Resident[] = [
     ...world.residents,
-    { id: THIRD_RESIDENT_ID, place: 'plot', target: null, motion: 'idle' },
+    { id: THIRD_RESIDENT_ID, place: 'fire', target: null, motion: 'idle' },
   ];
   return { ...world, humanStage: 3, population: residents.length, residents };
 }
@@ -112,6 +112,9 @@ export const settleThirdResidentAtCave = (world: WorldState): WorldState =>
 
 export const settleThirdResidentAtWorkshop = (world: WorldState): WorldState =>
   updateResident(world, THIRD_RESIDENT_ID, { place: 'workshop', target: null, motion: 'idle' });
+
+export const settleFirstResidentAtLivestock = (world: WorldState): WorldState =>
+  updateResident(world, FIRST_RESIDENT_ID, { place: 'livestock', target: null, motion: 'idle' });
 
 // The split has finished: resident 2 sets off for the plot.
 export const startSecondResidentWalking = (world: WorldState): WorldState =>

@@ -204,8 +204,8 @@ export class IslandScene extends Phaser.Scene {
     this.turn3Action
       .setOrigin(...this.assetOriginTuple(action.frame))
       .setScale(action.frame.baseScale)
-      .setPosition(LAYOUT.turn3Actions[action.action].x, LAYOUT.turn3Actions[action.action].y)
-      .setDepth(LAYOUT.turn3Actions[action.action].y + 1)
+      .setPosition(action.ground.x, action.ground.y)
+      .setDepth(action.ground.y + 1)
       .setAlpha(action.alpha)
       .setVisible(action.alpha > 0);
   }

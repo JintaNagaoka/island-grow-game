@@ -1,5 +1,5 @@
 import type { SliceSnapshot } from '../game/sliceGame';
-import { THIRD_RESIDENT_ID, type Resident } from '../game/worldState';
+import { FIRST_RESIDENT_ID, THIRD_RESIDENT_ID, type Resident } from '../game/worldState';
 import { clamp01, computeHumanPose, easeOutBack, stillPose, type HumanPose } from './animation';
 import { LAYOUT } from './layout';
 import { computeLifeHuman } from './lifeAnimation';
@@ -58,7 +58,7 @@ export function computeResidentVisuals(snapshot: SliceSnapshot): readonly Reside
         const pop = clamp01((thirdSplit - SPLIT_SHAKE_END) / (1 - SPLIT_SHAKE_END));
         return {
           id: resident.id,
-          pose: stillPose('idle', snapshot.world.isCold, LAYOUT.plotHuman),
+          pose: stillPose('idle', snapshot.world.isCold, LAYOUT.humanWarm),
           alpha: thirdSplit < SPLIT_SHAKE_END ? 0 : 1,
           scale: 0.6 + 0.4 * easeOutBack(pop),
           shakeX: 0,
@@ -68,8 +68,7 @@ export function computeResidentVisuals(snapshot: SliceSnapshot): readonly Reside
       if (
         actionWave === 'human-gathers-stone' ||
         actionWave === 'stone-workshop-built' ||
-        actionWave === 'settlement-expands' ||
-        actionWave === 'livestock-domesticated'
+        actionWave === 'settlement-expands'
       ) {
         return {
           id: resident.id,
@@ -87,6 +86,15 @@ export function computeResidentVisuals(snapshot: SliceSnapshot): readonly Reside
         shakeX: 0,
       };
     }
+    if (resident.place === 'livestock' || resident.target === 'livestock') {
+      return {
+        id: resident.id,
+        pose: stillPose('idle', snapshot.world.isCold, LAYOUT.livestockHuman),
+        alpha: 1,
+        scale: 1,
+        shakeX: 0,
+      };
+    }
     if (!isFarmResident(resident)) {
       // At the fire: the Turn 1 completed pose. During the split every resident
       // shares this exact ground point; only the original shakes and the new pops.
@@ -94,19 +102,21 @@ export function computeResidentVisuals(snapshot: SliceSnapshot): readonly Reside
       let alpha = 1;
       let scale = 1;
       let shakeX = 0;
-      if (split !== null && index === 0) {
-        if (split < SPLIT_SHAKE_END) {
-          const ramp = split / SPLIT_SHAKE_END;
+      const sourceSplit = split ?? (resident.id === FIRST_RESIDENT_ID ? thirdSplit : null);
+      if (sourceSplit !== null && index === 0) {
+        if (sourceSplit < SPLIT_SHAKE_END) {
+          const ramp = sourceSplit / SPLIT_SHAKE_END;
           shakeX = Math.sin(clockSeconds * Math.PI * 2 * SPLIT_SHAKE_HZ) * SPLIT_SHAKE_AMPLITUDE_PX * ramp;
           scale = 1 + 0.04 * ramp;
         } else {
-          scale = 1.04 - 0.04 * easeOutBack((split - SPLIT_SHAKE_END) / (1 - SPLIT_SHAKE_END));
+          scale = 1.04 - 0.04 * easeOutBack((sourceSplit - SPLIT_SHAKE_END) / (1 - SPLIT_SHAKE_END));
         }
       } else if (split !== null) {
         // The new resident pops out only after the shake; before that it is not drawn.
         if (split < SPLIT_SHAKE_END) alpha = 0;
         else scale = 0.6 + 0.4 * easeOutBack((split - SPLIT_SHAKE_END) / (1 - SPLIT_SHAKE_END));
       }
+      if (snapshot.activeWave?.id === 'livestock-domesticated' && resident.id === FIRST_RESIDENT_ID) alpha = 0;
       return { id: resident.id, pose, alpha, scale, shakeX };
     }
 
@@ -126,6 +136,6 @@ export function computeSplitEffect(snapshot: SliceSnapshot): SplitEffect | null 
   const split = splitProgress(snapshot);
   if (split !== null) return { ground: LAYOUT.humanWarm, glow: Math.sin(Math.PI * split), sparkle: split };
   const third = thirdSplitProgress(snapshot);
-  if (third !== null) return { ground: LAYOUT.plotHuman, glow: Math.sin(Math.PI * third), sparkle: third };
+  if (third !== null) return { ground: LAYOUT.humanWarm, glow: Math.sin(Math.PI * third), sparkle: third };
   return null;
 }

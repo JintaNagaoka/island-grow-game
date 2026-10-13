@@ -9,6 +9,7 @@ import {
   hasStoneWorkshop,
 } from '../game/worldState';
 import { clamp01, easeOutBack, levelUpBlend } from './animation';
+import { LAYOUT, type Point } from './layout';
 import {
   TURN3_ACTION_ANIMATIONS,
   TURN3_ACTION_FRAMES,
@@ -64,6 +65,7 @@ export interface Turn3ActionVisual {
   readonly action: Turn3ActionId;
   readonly frame: Turn3Asset;
   readonly alpha: number;
+  readonly ground: Point;
 }
 
 export function computeTurn3Action(snapshot: SliceSnapshot): Turn3ActionVisual | null {
@@ -76,5 +78,6 @@ export function computeTurn3Action(snapshot: SliceSnapshot): Turn3ActionVisual |
   const frames = TURN3_ACTION_FRAMES[action];
   const index = Math.floor(wave.elapsedMs / TURN3_ACTION_ANIMATIONS.frameDurationMs) % frames.length;
   const fade = levelUpBlend(clamp01(wave.progress / 0.12)).newAlpha;
-  return { action, frame: frames[index], alpha: fade };
+  const ground = wave.id === 'livestock-domesticated' ? LAYOUT.livestockHuman : LAYOUT.turn3Actions[action];
+  return { action, frame: frames[index], alpha: fade, ground };
 }

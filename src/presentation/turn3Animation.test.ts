@@ -6,6 +6,7 @@ import { PLANT_LIFE_WAVES, ROCK_SETTLEMENT_WAVES } from '../game/waves';
 import { computeTurn3Action, computeTurn3Props } from './turn3Animation';
 import { computeAnimalVisual, computeFarmTiles, computeFarmVisual } from './lifeAnimation';
 import { computeResidentVisuals } from './residents';
+import { LAYOUT } from './layout';
 import {
   TURN3_ACTION_ANIMATIONS,
   TURN3_ACTION_ASSET_LIST,
@@ -97,6 +98,16 @@ describe('Turn 3 pure presentation', () => {
     const residents = computeResidentVisuals(completed);
     expect(residents.map((resident) => resident.id)).toEqual(['resident-1', 'resident-2', 'resident-3']);
     expect(residents.find((resident) => resident.id === 'resident-3')).toMatchObject({ alpha: 1 });
+    expect(residents.find((resident) => resident.id === 'resident-1')).toMatchObject({
+      alpha: 1,
+      pose: { x: LAYOUT.livestockHuman.x, y: LAYOUT.livestockHuman.y },
+    });
+    expect(residents.find((resident) => resident.id === 'resident-2')).toMatchObject({
+      pose: { x: LAYOUT.plotHuman.x, y: LAYOUT.plotHuman.y },
+    });
+    expect(residents.find((resident) => resident.id === 'resident-3')).toMatchObject({
+      pose: { x: LAYOUT.workshopHuman.x, y: LAYOUT.workshopHuman.y },
+    });
   });
 
   it('maps gather, build and carry frames from logical Wave time only', () => {
@@ -108,6 +119,21 @@ describe('Turn 3 pure presentation', () => {
     expect(computeTurn3Action(atTurn3(offsets[0] + 200))?.action).toBe('gather');
     expect(computeTurn3Action(atTurn3(offsets[1] + 200))?.action).toBe('build');
     expect(computeTurn3Action(atTurn3(offsets[2] + 200))?.action).toBe('carry');
+    expect(computeTurn3Action(atTurn3(offsets[2] + 200))?.ground).toEqual(LAYOUT.turn3Actions.carry);
+    expect(computeTurn3Action(atTurn3(offsets[3] + 200))).toMatchObject({
+      action: 'carry',
+      ground: LAYOUT.livestockHuman,
+    });
+  });
+
+  it('moves the livestock worker into place while leaving the workshop worker visible', () => {
+    const livestockStart = ROCK_SETTLEMENT_WAVES.slice(0, 4).reduce((sum, wave) => sum + wave.durationMs, 0);
+    const during = computeResidentVisuals(atTurn3(livestockStart + 200));
+    expect(during.find((resident) => resident.id === 'resident-1')?.alpha).toBe(0);
+    expect(during.find((resident) => resident.id === 'resident-3')).toMatchObject({
+      alpha: 1,
+      pose: { x: LAYOUT.workshopHuman.x, y: LAYOUT.workshopHuman.y },
+    });
   });
 
   it('is playback-speed invariant and never mutates WorldState', () => {

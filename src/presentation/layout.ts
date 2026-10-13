@@ -130,6 +130,9 @@ export const LAYOUT = {
   feedTrough: assetGround(TURN3_WORLD_ASSETS.feedTrough),
   waterTrough: assetGround(TURN3_WORLD_ASSETS.waterTrough),
   workshopHuman: assetGround(TURN3_WORLD_ASSETS.stoneWorkshop),
+  // The livestock worker stands outside the pen on its right, matching the
+  // approved Turn 3 composition and keeping the animals and trough readable.
+  livestockHuman: onIsland(715, 735),
   turn3Actions: {
     gather: assetGround(TURN3_ACTION_FRAMES.gather[0]),
     build: assetGround(TURN3_ACTION_FRAMES.build[0]),

@@ -35,6 +35,9 @@ describe('Turn 3 rock route', () => {
     expect(world.population).toBe(3);
     expect(world.humanStage).toBe(3);
     expect(world.residents.map((resident) => resident.id)).toEqual(['resident-1', 'resident-2', 'resident-3']);
+    expect(world.residents.find((resident) => resident.id === 'resident-3')).toMatchObject({
+      place: 'fire', target: null, motion: 'idle',
+    });
     expect(activeWave).toMatchObject({ id: 'human-splits-third', index: 0, progress: 0 });
     expect(game.selectElement('rock')).toEqual({ accepted: false, reason: 'input-locked' });
     expect(game.snapshot().world.population).toBe(3);
@@ -105,7 +108,7 @@ describe('Turn 3 rock route', () => {
       population: 3,
     });
     expect(world.residents).toEqual([
-      { id: 'resident-1', place: 'fire', target: null, motion: 'idle' },
+      { id: 'resident-1', place: 'livestock', target: null, motion: 'idle' },
       { id: 'resident-2', place: 'plot', target: null, motion: 'idle' },
       { id: 'resident-3', place: 'workshop', target: null, motion: 'idle' },
     ]);

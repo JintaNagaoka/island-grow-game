@@ -2,6 +2,7 @@ import { BEAT_MS, FARM_WORK_MS, PLANT_WAVE_BEATS, ROCK_WAVE_MS, SPLIT_WAVE_MS, W
 import {
   settleThirdResidentAtWorkshop,
   settleThirdResidentAtCave,
+  settleFirstResidentAtLivestock,
   settleFirstResidentAtFire,
   settleSecondResidentAtPlot,
   startSecondResidentWalking,
@@ -152,7 +153,7 @@ export const ROCK_SETTLEMENT_WAVES: readonly Wave[] = [
     id: 'livestock-domesticated',
     durationMs: ROCK_WAVE_MS.livestockDomesticated,
     complete: (world) => ({
-      ...world,
+      ...settleFirstResidentAtLivestock(world),
       animalStage: 3,
       animalCount: 2,
       livestockFacilitiesStage: 1,
