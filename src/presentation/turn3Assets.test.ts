@@ -7,6 +7,7 @@ import {
   TURN3_WORLD_ASSET_LIST,
   type Turn3Asset,
 } from './turn3Assets';
+import { HUMAN_SPRITE_SCALE } from './humanAssets';
 
 const ROOT = new URL('../../', import.meta.url);
 const bytesFor = (asset: Turn3Asset): Uint8Array =>
@@ -34,16 +35,18 @@ const countColor = (
 const visibleBounds = (pixels: Uint8Array, width: number, height: number) => {
   let left = width;
   let right = -1;
+  let top = height;
   let bottom = -1;
   for (let y = 0; y < height; y += 1) {
     for (let x = 0; x < width; x += 1) {
       if (pixels[(y * width + x) * 4 + 3] < 3) continue;
       left = Math.min(left, x);
       right = Math.max(right, x);
+      top = Math.min(top, y);
       bottom = Math.max(bottom, y);
     }
   }
-  return { left, right, bottom };
+  return { left, right, top, bottom };
 };
 
 describe('Turn 3 generated PNG quality gates', () => {
@@ -92,6 +95,18 @@ describe('Turn 3 generated PNG quality gates', () => {
     expect(cream).toBeGreaterThan(100);
     expect(outline).toBeGreaterThan(100);
   });
+
+  it.each(TURN3_ACTION_ASSET_LIST)(
+    '$filename uses the approved resident scale and stays near the 40px visual-reference height',
+    (asset) => {
+      const png = readPng(bytesFor(asset));
+      const bounds = visibleBounds(png.pixels, png.width, png.height);
+      const displayHeight = (bounds.bottom - bounds.top + 1) * asset.baseScale;
+      expect(asset.baseScale).toBe(HUMAN_SPRITE_SCALE);
+      expect(displayHeight).toBeGreaterThanOrEqual(38);
+      expect(displayHeight).toBeLessThanOrEqual(46);
+    },
+  );
 
   it.each(TURN3_ASSET_LIST)('$filename is centered on the shared ground anchor', (asset) => {
     const png = readPng(bytesFor(asset));

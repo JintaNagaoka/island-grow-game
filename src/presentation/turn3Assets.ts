@@ -1,4 +1,5 @@
 import type { WorldAsset } from './worldAssets';
+import { HUMAN_SPRITE_SCALE } from './humanAssets';
 
 export const TURN3_WORLD_ASSET_DIR = '/assets/world/turn3/';
 export const TURN3_ACTION_ASSET_DIR = '/assets/human/actions/';
@@ -55,7 +56,10 @@ const actionFrame = (action: Turn3ActionId, frame: 1 | 2 | 3): Turn3Asset => ({
   width: 512,
   height: 512,
   groundAnchor: { x: 256, y: 480 },
-  baseScale: 0.2,
+  // Keep provisional Turn 3 work poses at the same visual size as the
+  // approved resident set. Their visible bodies are about 400–433 source px
+  // high, so the shared 0.1 scale renders them at roughly 40–43 design px.
+  baseScale: HUMAN_SPRITE_SCALE,
   placementSpace: 'island',
   placement: action === 'gather'
     ? { x: 595, y: 625 }
