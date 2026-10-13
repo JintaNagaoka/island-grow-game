@@ -36,7 +36,7 @@ export const TURN3_WORLD_ASSETS = {
   stoneWorkshop: world('turn3-stone-workshop', 'stone-workshop.png', { x: 480, y: 765 }, 0.25),
   // Supplies sit at the baked island cave mouth (upper-left), rather than
   // becoming a separate campsite beside the tree.
-  practicalCave: world('turn3-practical-cave', 'cave-practical.png', { x: 230, y: 230 }, 0.13),
+  practicalCave: world('turn3-practical-cave', 'cave-practical.png', { x: 470, y: 210 }, 0.13),
   dryRiverbed: world('turn3-dry-riverbed', 'dry-riverbed.png', { x: 470, y: 1070 }, 0.36),
   livestockParent: world('turn3-livestock-parent', 'livestock-parent.png', { x: 625, y: 705 }, 0.18),
   livestockChild: world('turn3-livestock-child', 'livestock-child.png', { x: 568, y: 710 }, 0.14),
