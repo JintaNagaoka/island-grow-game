@@ -11,6 +11,7 @@ import {
   FARM_WATER_HUMAN_FEET,
   HUT_ASSET,
 } from './turn2Assets';
+import { TURN3_ACTION_FRAMES, TURN3_WORLD_ASSETS } from './turn3Assets';
 import { FIRE_ASSET, WORLD_ASSETS, type WorldAsset } from './worldAssets';
 
 // All layout is expressed as ratios of the 9:16 design resolution so aspect
@@ -118,6 +119,25 @@ export const LAYOUT = {
   farmPlotTiles: FARM_PLOT_TILES,
   hut: assetGround(HUT_ASSET),
   cookingFire: assetGround(COOK_STEAM_FRAMES[0]),
+  matureFarm: assetGround(TURN3_WORLD_ASSETS.matureFarm),
+  secondHut: assetGround(TURN3_WORLD_ASSETS.secondHut),
+  stoneWorkshop: assetGround(TURN3_WORLD_ASSETS.stoneWorkshop),
+  practicalCave: assetGround(TURN3_WORLD_ASSETS.practicalCave),
+  dryRiverbed: assetGround(TURN3_WORLD_ASSETS.dryRiverbed),
+  livestockParent: assetGround(TURN3_WORLD_ASSETS.livestockParent),
+  livestockChild: assetGround(TURN3_WORLD_ASSETS.livestockChild),
+  fence: assetGround(TURN3_WORLD_ASSETS.fence),
+  feedTrough: assetGround(TURN3_WORLD_ASSETS.feedTrough),
+  waterTrough: assetGround(TURN3_WORLD_ASSETS.waterTrough),
+  workshopHuman: assetGround(TURN3_WORLD_ASSETS.stoneWorkshop),
+  // The livestock worker stands outside the pen on its right, matching the
+  // approved Turn 3 composition and keeping the animals and trough readable.
+  livestockHuman: onIsland(715, 735),
+  turn3Actions: {
+    gather: assetGround(TURN3_ACTION_FRAMES.gather[0]),
+    build: assetGround(TURN3_ACTION_FRAMES.build[0]),
+    carry: assetGround(TURN3_ACTION_FRAMES.carry[0]),
+  },
   // The human's walk from the fire to the plot. The warm-up spot is a pocket
   // between the shelter's right leg and the fire, so the walk first threads up
   // that gap (about 8 design px wide at its narrowest; the feet clear both

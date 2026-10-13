@@ -1,6 +1,6 @@
 import { DEFAULT_PLAYBACK_SPEED, assertValidPlaybackSpeed, toLogicalDeltaMs } from './timing';
-import { FIRE_WARMING_WAVES, PLANT_LIFE_WAVES, type Wave, type WaveId } from './waves';
-import { ELEMENTS, createInitialWorldState, splitResident, type Element, type WorldState } from './worldState';
+import { FIRE_WARMING_WAVES, PLANT_LIFE_WAVES, ROCK_SETTLEMENT_WAVES, type Wave, type WaveId } from './waves';
+import { ELEMENTS, addThirdResident, createInitialWorldState, splitResident, type Element, type WorldState } from './worldState';
 
 export type SelectRejection =
   | 'input-locked'
@@ -17,7 +17,7 @@ export type SelectResult =
 // playing: a Wave sequence is running and input is locked.
 // completed: the sequence finished; the human is ready/idle (activity-ready
 //   waiting state). This is runtime flow state, not part of WorldState. It is
-//   reached after Turn 1 (🔥) and again after Turn 2 (🌱).
+//   reached after each implemented Turn.
 export type SlicePhase = 'awaiting-input' | 'playing' | 'completed';
 
 export interface ActiveWave {
@@ -49,10 +49,12 @@ export interface SliceGameOptions {
   readonly waves?: readonly Wave[];
   // Turn 2 (🌱) Waves. Overridable for tests.
   readonly plantWaves?: readonly Wave[];
+  // Turn 3 (🪨) Waves. Overridable for tests.
+  readonly rockWaves?: readonly Wave[];
   readonly playbackSpeed?: number;
 }
 
-// Vertical Slice controller (Turn 1 fire, Turn 2 plant): input guard + sequential Wave playback driven
+// TRUE-route slice controller (Turn 1 fire, Turn 2 plant, Turn 3 rock): input guard + sequential Wave playback driven
 // by an explicit logical clock. It owns the authoritative WorldState and has
 // no dependency on Phaser; rendering reads snapshot() and never feeds back.
 export class SliceGame {
@@ -71,6 +73,7 @@ export class SliceGame {
     this.turnWaves = {
       fire: options.waves ?? FIRE_WARMING_WAVES,
       plant: options.plantWaves ?? PLANT_LIFE_WAVES,
+      rock: options.rockWaves ?? ROCK_SETTLEMENT_WAVES,
     };
     this.waves = this.turnWaves.fire ?? FIRE_WARMING_WAVES;
     this.playbackSpeed = options.playbackSpeed ?? DEFAULT_PLAYBACK_SPEED;
@@ -91,6 +94,7 @@ export class SliceGame {
     // Turn 2 begins with the population split, applied here (not by a Wave or an
     // animation) so it is authoritative from the accepted selection onward.
     if (element === 'plant') this.world = splitResident(this.world);
+    if (element === 'rock') this.world = addThirdResident(this.world);
     this.phase = 'playing';
     this.waveIndex = 0;
     this.waveElapsedMs = 0;
@@ -142,6 +146,9 @@ export class SliceGame {
     if (this.world.selectedElements.includes(element)) return 'already-selected';
     if (this.turnWaves[element] === undefined) return 'not-implemented';
     if (element === 'plant' && !this.world.selectedElements.includes('fire')) {
+      return 'prerequisite-not-met';
+    }
+    if (element === 'rock' && !this.world.selectedElements.includes('plant')) {
       return 'prerequisite-not-met';
     }
     return null;

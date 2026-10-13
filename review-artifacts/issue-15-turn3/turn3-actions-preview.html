@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Turn 3 provisional action preview</title>
+    <style>
+      :root { color-scheme: dark; font-family: system-ui, sans-serif; }
+      body { margin: 0; background: #16232c; color: #f6edcf; }
+      main { max-width: 960px; margin: auto; padding: 24px; }
+      h1 { margin: 0 0 8px; font-size: 24px; }
+      p { margin: 0 0 24px; color: #cbd5d9; }
+      .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; }
+      figure { margin: 0; border: 1px solid #44545b; border-radius: 20px; background: #293d3a; overflow: hidden; }
+      img { display: block; width: 100%; aspect-ratio: 1; object-fit: contain; background: radial-gradient(ellipse at 50% 88%, #6d8069 0 22%, transparent 23%); }
+      figcaption { padding: 12px 16px; font-weight: 700; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Turn 3 作業アニメーション（provisional）</h1>
+      <p>512×512 RGBA、3フレーム、180 ms/フレーム、共通原点 (0.5, 0.9375)、root motionなし。</p>
+      <section class="grid">
+        <figure><img data-action="gather" alt="採取アニメーション" /><figcaption>採取 gather</figcaption></figure>
+        <figure><img data-action="build" alt="建築アニメーション" /><figcaption>建築 build</figcaption></figure>
+        <figure><img data-action="carry" alt="運搬アニメーション" /><figcaption>運搬 carry</figcaption></figure>
+      </section>
+    </main>
+    <script>
+      const frames = [1, 2, 3];
+      let index = 0;
+      const render = () => {
+        for (const image of document.querySelectorAll('[data-action]')) {
+          image.src = `/assets/human/actions/${image.dataset.action}-${frames[index]}.png`;
+        }
+        index = (index + 1) % frames.length;
+      };
+      render();
+      window.setInterval(render, 180);
+    </script>
+  </body>
+</html>

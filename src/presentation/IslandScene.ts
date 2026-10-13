@@ -40,6 +40,13 @@ import {
   HUT_ASSET,
   TURN2_ASSET_LIST,
 } from './turn2Assets';
+import { computeTurn3Action, computeTurn3Props } from './turn3Animation';
+import {
+  TURN3_ACTION_FRAMES,
+  TURN3_ASSET_LIST,
+  TURN3_WORLD_ASSETS,
+  type Turn3Asset,
+} from './turn3Assets';
 import {
   FIRE_ASSET,
   FIRE_FRAMES,
@@ -75,6 +82,8 @@ interface ResidentView {
   readonly cold: Phaser.GameObjects.Graphics;
 }
 
+type Turn3WorldKey = keyof typeof TURN3_WORLD_ASSETS;
+
 // Fixed-camera miniature presentation. Gameplay lives entirely in SliceGame;
 // this scene turns snapshots into toy-like shapes and clock-driven movement.
 export class IslandScene extends Phaser.Scene {
@@ -108,6 +117,8 @@ export class IslandScene extends Phaser.Scene {
   private residentViews = new Map<string, ResidentView>();
   private splitGlow!: Phaser.GameObjects.Graphics;
   private splitSparkles!: Phaser.GameObjects.Graphics;
+  private turn3Props = new Map<Turn3WorldKey, Phaser.GameObjects.Image>();
+  private turn3Action!: Phaser.GameObjects.Image;
 
   constructor() {
     super(ISLAND_SCENE_KEY);
@@ -118,6 +129,9 @@ export class IslandScene extends Phaser.Scene {
       this.load.image(asset.textureKey, `${WORLD_ASSET_DIR}${asset.filename}`);
     }
     for (const asset of TURN2_ASSET_LIST) {
+      this.load.image(asset.textureKey, `${asset.dir}${asset.filename}`);
+    }
+    for (const asset of TURN3_ASSET_LIST) {
       this.load.image(asset.textureKey, `${asset.dir}${asset.filename}`);
     }
     for (const asset of HUMAN_ASSET_LIST) {
@@ -163,7 +177,37 @@ export class IslandScene extends Phaser.Scene {
     this.renderFarmTiles(snapshot);
     this.renderCookingFire(snapshot);
     this.renderFire(snapshot);
+    this.renderTurn3(snapshot);
     this.renderButtons(snapshot);
+  }
+
+  private renderTurn3(snapshot: SliceSnapshot): void {
+    const visuals = computeTurn3Props(snapshot);
+    for (const [key, visual] of Object.entries(visuals) as [Turn3WorldKey, { alpha: number; scale: number }][]) {
+      const sprite = this.turn3Props.get(key);
+      if (!sprite) throw new Error(`missing Turn 3 sprite: ${key}`);
+      const asset = TURN3_WORLD_ASSETS[key];
+      sprite
+        .setVisible(visual.alpha > 0)
+        .setAlpha(visual.alpha)
+        .setScale(asset.baseScale * visual.scale);
+    }
+
+    const action = computeTurn3Action(snapshot);
+    if (action === null) {
+      this.turn3Action.setVisible(false);
+      return;
+    }
+    if (this.turn3Action.texture.key !== action.frame.textureKey) {
+      this.turn3Action.setTexture(action.frame.textureKey);
+    }
+    this.turn3Action
+      .setOrigin(...this.assetOriginTuple(action.frame))
+      .setScale(action.frame.baseScale)
+      .setPosition(action.ground.x, action.ground.y)
+      .setDepth(action.ground.y + 1)
+      .setAlpha(action.alpha)
+      .setVisible(action.alpha > 0);
   }
 
   // One animal, one ground point: the wild art levels up into the eating art by a
@@ -551,6 +595,11 @@ export class IslandScene extends Phaser.Scene {
       .setDepth(y);
   }
 
+  private assetOriginTuple(asset: WorldAsset): [number, number] {
+    const origin = groundOrigin(asset);
+    return [origin.x, origin.y];
+  }
+
   private createWorld(): void {
     const island = WORLD_ASSETS.island;
     // The island is the ground: always behind every depth-sorted prop.
@@ -586,5 +635,31 @@ export class IslandScene extends Phaser.Scene {
       .setDepth(LAYOUT.fire.y + 1)
       .setVisible(false);
     this.fireSparks = this.add.graphics().setDepth(LAYOUT.fire.y + 1.5);
+
+    const turn3Ground: Record<Turn3WorldKey, { readonly x: number; readonly y: number }> = {
+      matureFarm: LAYOUT.matureFarm,
+      secondHut: LAYOUT.secondHut,
+      stoneWorkshop: LAYOUT.stoneWorkshop,
+      practicalCave: LAYOUT.practicalCave,
+      dryRiverbed: LAYOUT.dryRiverbed,
+      livestockParent: LAYOUT.livestockParent,
+      livestockChild: LAYOUT.livestockChild,
+      fence: LAYOUT.fence,
+      feedTrough: LAYOUT.feedTrough,
+      waterTrough: LAYOUT.waterTrough,
+    };
+    this.turn3Props = new Map();
+    for (const [key, asset] of Object.entries(TURN3_WORLD_ASSETS) as [Turn3WorldKey, Turn3Asset][]) {
+      const ground = turn3Ground[key];
+      const sprite = this.addGroundSprite(asset, ground.x, ground.y).setVisible(false);
+      // The mature plot is ground under resident 2, not a foreground prop that
+      // can cover the resident's feet/body.
+      if (key === 'matureFarm') sprite.setDepth(LAYOUT.plotHuman.y - 1);
+      this.turn3Props.set(key, sprite);
+    }
+    const firstAction = TURN3_ACTION_FRAMES.gather[0];
+    this.turn3Action = this.addGroundSprite(firstAction, LAYOUT.workshopHuman.x, LAYOUT.workshopHuman.y)
+      .setDepth(LAYOUT.workshopHuman.y + 1)
+      .setVisible(false);
   }
 }
