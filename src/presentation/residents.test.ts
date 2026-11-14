@@ -96,10 +96,11 @@ describe('resident visuals', () => {
     }
   });
 
-  it('hands resident 2 to the composite farm art exactly as the single human was', () => {
-    for (const ms of [SPLIT_WAVE_MS + WALK_MS + 10, TURN2_MS + 500]) {
-      expect(visualOf(turn2At(ms).snapshot(), 'resident-2').alpha).toBe(0);
-    }
+  it('hands resident 2 to the composite farm art while the farm work plays, and stands it at the plot again once the plot is established', () => {
+    expect(visualOf(turn2At(SPLIT_WAVE_MS + WALK_MS + 10).snapshot(), 'resident-2').alpha).toBe(0);
+    const done = visualOf(turn2At(TURN2_MS + 500).snapshot(), 'resident-2');
+    expect(done).toMatchObject({ alpha: 1, scale: 1, shakeX: 0 });
+    expect(done.pose).toMatchObject({ x: LAYOUT.plotHuman.x, y: LAYOUT.plotHuman.y, walk: null, asset: 'idle' });
   });
 
   it('is unaffected by one resident stopping: resident 1 is identical before and after resident 2 arrives', () => {
