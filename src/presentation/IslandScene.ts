@@ -31,7 +31,6 @@ import {
   computeFarmVisual,
   computeShelterVisual,
 } from './lifeAnimation';
-import { PLANT_STAGE_ASSETS, PLANT_STAGE_ASSET_LIST, selectPlantStageAsset } from './plantAssets';
 import { computeResidentVisuals, computeSplitEffect, type ResidentVisual } from './residents';
 import {
   ANIMAL_EAT_FRAMES,
@@ -92,8 +91,6 @@ export class IslandScene extends Phaser.Scene {
   private farm!: Phaser.GameObjects.Image;
   // The standalone plot tiles of the expanded farm, in LAYOUT.farmPlotTiles order.
   private farmTiles: Phaser.GameObjects.Image[] = [];
-  // The durable plant plot: one image whose texture is the asset of the authoritative plant stage.
-  private plantPlot!: Phaser.GameObjects.Image;
   // The campfire levelled up: replaces fireSprite at the same ground point.
   private cookingFire!: Phaser.GameObjects.Image;
   private cookingGlow!: Phaser.GameObjects.Graphics;
@@ -121,9 +118,6 @@ export class IslandScene extends Phaser.Scene {
       this.load.image(asset.textureKey, `${WORLD_ASSET_DIR}${asset.filename}`);
     }
     for (const asset of TURN2_ASSET_LIST) {
-      this.load.image(asset.textureKey, `${asset.dir}${asset.filename}`);
-    }
-    for (const asset of PLANT_STAGE_ASSET_LIST) {
       this.load.image(asset.textureKey, `${asset.dir}${asset.filename}`);
     }
     for (const asset of HUMAN_ASSET_LIST) {
@@ -167,7 +161,6 @@ export class IslandScene extends Phaser.Scene {
     this.renderHuman(snapshot);
     this.renderFarm(snapshot);
     this.renderFarmTiles(snapshot);
-    this.renderPlantPlot(snapshot);
     this.renderCookingFire(snapshot);
     this.renderFire(snapshot);
     this.renderButtons(snapshot);
@@ -295,18 +288,6 @@ export class IslandScene extends Phaser.Scene {
         .setAlpha(tile.alpha)
         .setScale(FARM_PLOT_TILE.baseScale * tile.scale);
     });
-  }
-
-  // The durable plant plot: exactly the asset of the authoritative plant stage, or
-  // nothing at Stage 0. It reads the snapshot's world only; no Wave progress, timer or
-  // animation callback decides it, and nothing here writes back to the game.
-  private renderPlantPlot(snapshot: SliceSnapshot): void {
-    const asset = selectPlantStageAsset(snapshot.world);
-    this.plantPlot.setVisible(asset !== null);
-    if (asset === null) return;
-    if (this.plantPlot.texture.key !== asset.textureKey) this.plantPlot.setTexture(asset.textureKey);
-    const origin = groundOrigin(asset);
-    this.plantPlot.setOrigin(origin.x, origin.y).setScale(asset.baseScale);
   }
 
   // The campfire levels up into the cooking fire at the campfire's ground point.
@@ -594,7 +575,6 @@ export class IslandScene extends Phaser.Scene {
     this.farmTiles = LAYOUT.farmPlotTiles.map((ground) =>
       this.addGroundSprite(FARM_PLOT_TILE, ground.x, ground.y).setVisible(false),
     );
-    this.plantPlot = this.addGroundSprite(PLANT_STAGE_ASSETS[0], LAYOUT.plantPlot.x, LAYOUT.plantPlot.y).setVisible(false);
     // The cooking fire shares the campfire's ground point and is drawn just over it.
     this.cookingGlow = this.add.graphics().setDepth(LAYOUT.cookingFire.y - 0.4);
     this.cookingFire = this.addGroundSprite(COOK_STEAM_FRAMES[0], LAYOUT.cookingFire.x, LAYOUT.cookingFire.y)
