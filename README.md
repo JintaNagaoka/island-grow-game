@@ -41,12 +41,12 @@ Turn 1 が完了すると 🌱 だけが選べるようになります（Turn 1 
 2. `human-walks-to-plot`: 分裂後に小人 2 だけが（既存の Issue #11 の経路・素材のまま）火のそばから左中段の草地の畑予定地へ歩く（承認済み4方向歩行。雨よけの右脚と火の間のすき間を通って上へ、雨よけの屋根の右上の空き地を上へ進み、島の岩を避けて、畑の左下から着く）
 3. `human-waters-plot`: 小人 2 が畑に着いたら、`human_farm_water1` を**ちょうど 1.5 秒（論理時間）連続して**表示する（畑が小さくポップインする。`plantStage` は 0 のまま）
 4. `human-harvests-plot`: `human_farm_harvest2` をちょうど 1.5 秒連続して表示する
-5. `farm-expands`: `human_farm_harvest1` に落ち着き、単独の四株の畑 `farm-plot-four-plants.png` が 1 枚ずつ育つように増えて、リファレンスに近い大きさの畑になる（この Wave の完了時に `plantStage` が 1 になります（1 回だけ。2 は使いません）。複合画像と単独の畑は作業中だけの一時的な絵で、`plantStage` が 1 になった時点で消え、代わりに永続する植物画像 `plant_stage_1.png`（下記「植物の成長段階 PNG」）が同じ畑の位置に 1 枚だけ表示されて以後ずっと残る）
+5. `farm-expands`: `human_farm_harvest1` に落ち着き、単独の四株の畑 `farm-plot-four-plants.png` が 1 枚ずつ育つように増えて、リファレンスに近い大きさの畑になる（この Wave の完了時に `plantStage` が 1 になり（1 回だけ。2 は使いません）、拡張した畑は以後ずっと残る）
 6. `shelter-levels-up`: 雨よけが膨らみながら薄れ、同じ接地点から小屋が現れる（淡い光と小さなきらめき。新規画像は生成していません。`shelterStage` が 2 になる）
 7. `cooking-starts`: 既存の焚き火が膨らみながら薄れ、同じ接地点で調理の火（`cook_pot_steam1` ↔ `steam2`）へレベルアップする（鍋を隣に置くのではなく、焚き火の置き換え。完了時に `fireStage` が 1 → 2 になり、以後は調理の火だけが表示される）
 8. `animal-eats`: 既存の動物 1 頭が、同じ接地点で餌を食べる姿（`animal_eat1` ↔ `eat2`）へレベルアップする（動物は 1 頭のまま。完了時に `animalStage` が 1 → 2 になる）
 
-どのレベルアップ（小屋・調理の火・動物）も、論理クロックから導く短い「入れ替え」演出（旧い絵が少し膨らんで薄れ、新しい絵が同じ接地点から現れる。淡い光と小さなきらめき）で、Wave の完了条件はアニメーションの完了ではありません。完了後、🌱 が「✓ 選択済み」になり、畑の収穫アニメーション・調理の火の湯気・動物の食事が控えめに続きます。完了時の人口は 2 人です。`WorldState.residents` に安定した ID を持つ 2 つの状態（`resident-1`: 火の前で待機、`resident-2`: 畑の位置）が残り、`humanStage` は 2 です（将来の Turn 3 がこの状態を引き継ぎます。Turn 3 の人口増加は未実装です）。画面上は、小人 1 が火の前で idle のまま、小人 2 は農作業の間だけ既存の複合画像（畑の位置）で表現され、`plantStage` が 1 になった後は承認済みの idle で畑の左に立ちます（複合画像は畑と一体の絵のため、消えると同時に小人 2 の idle を表示します。この切り替えの見た目は Human Review 項目です）。動物は 1 頭のままで、柵・繁殖・池・水路・祠は出ません。
+どのレベルアップ（小屋・調理の火・動物）も、論理クロックから導く短い「入れ替え」演出（旧い絵が少し膨らんで薄れ、新しい絵が同じ接地点から現れる。淡い光と小さなきらめき）で、Wave の完了条件はアニメーションの完了ではありません。完了後、🌱 が「✓ 選択済み」になり、畑の収穫アニメーション・調理の火の湯気・動物の食事が控えめに続きます。完了時の人口は 2 人です。`WorldState.residents` に安定した ID を持つ 2 つの状態（`resident-1`: 火の前で待機、`resident-2`: 畑の位置）が残り、`humanStage` は 2 です（将来の Turn 3 がこの状態を引き継ぎます。Turn 3 の人口増加は未実装です）。画面上は、小人 1 が火の前で idle のまま、小人 2 は既存の農作業・複合画像（畑の位置）で表現されます。動物は 1 頭のままで、柵・繁殖・池・水路・祠は出ません。
 
 分裂の長さ 600 ms、震えの振幅 2.5 px、9 Hz、ポップの拡大率 0.6 倍は、Notion に数値の定義がないため Human Review 対象とし、2026-10-12 に Cloudflare Pages の実機確認で承認されました（`SPLIT_WAVE_MS` は `src/game/timing.ts`、震え・ポップは `src/presentation/residents.ts`）。これらの値を変更する場合は、再度 Human Review が必要です。
 
@@ -173,7 +173,7 @@ sips -s format png asset-source/initial-turn1/campfire_frame_b_1254.jpg --out as
 | 同上 | `cook_pot_steam1.png` | `cook-steam-1` | `d0c0a50e…` |
 | 同上 | `cook_pot_steam2.png` | `cook-steam-2` | `7dfa98bf…` |
 
-農作業の順序（`FARM_WORK_SEQUENCE`。論理クロックと Wave だけで決まり、1 回だけ実行）: `farm-water-1` を 1500 ms → `farm-harvest-2` を 1500 ms → `farm-harvest-1` に落ち着いて単独タイルを追加（これらは作業中の一時的な絵で、`plantStage` が 1 になると消えます）。各ポーズは交互再生せず 1 枚を連続表示します（旧仕様の 300 ms 交互再生は置き換えました）。到着後の立ち絵は既存の承認済み idle（texture key `idle`）で、水やり姿勢の小人の足元（`human_farm_water1.png` の (182, 404)）に立たせ、water1 に切り替わっても小人が動かないようにしています。ZIP の `animation.json` にある外部プレースホルダー名（`EXTERNAL_APPROVED_HUMAN_IDLE.png`）はランタイムで読み込みません。
+農作業の順序（`FARM_WORK_SEQUENCE`。論理クロックと Wave だけで決まり、1 回だけ実行）: `farm-water-1` を 1500 ms → `farm-harvest-2` を 1500 ms → `farm-harvest-1` に落ち着いて単独タイルを追加。各ポーズは交互再生せず 1 枚を連続表示します（旧仕様の 300 ms 交互再生は置き換えました）。到着後の立ち絵は既存の承認済み idle（texture key `idle`）で、水やり姿勢の小人の足元（`human_farm_water1.png` の (182, 404)）に立たせ、water1 に切り替わっても小人が動かないようにしています。ZIP の `animation.json` にある外部プレースホルダー名（`EXTERNAL_APPROVED_HUMAN_IDLE.png`）はランタイムで読み込みません。
 
 ループするアニメーション（`TURN2_ANIMATIONS`。300 ms/フレーム、repeat）:
 - `animal_eat`: `animal-eat-1` → `animal-eat-2`
@@ -223,21 +223,11 @@ sips -s format png asset-source/initial-turn1/campfire_frame_b_1254.jpg --out as
 
 出力は同じ入力から常に同じピクセルになります（テストが再導出して照合します。現環境での出力 SHA-256 は `f3ba4fba5dbccfc15850f902be66889a059409b1bdcf6c61eedc332815f4ee20` ですが、zlib の版が違えばバイト列は変わりうるため、ピクセル単位で照合しています）。抽出品質（縁・白抜け・矩形背景）は人間レビューの対象です。`review-artifacts/issue-11-turn2-plant-hut/hut-runtime-on-water-blue.png` は水色の上に置いた確認用です。
 
-## 植物の成長段階 PNG（`public/assets/world/plant-stages/`）
-
-供給 ZIP `plant_stages_final.zip`（SHA-256 `a716342ad6a33f4c15b273fa5a7d6f400654c669656abed3267691c4e10f9b97`）の 5 枚を無加工で追加しています（512x512、8-bit RGBA、透明背景、文字・小人なし）。`plant_stage_N.png` が `WorldState.plantStage` = N（N = 1〜5）の永続する畑の見た目で、1 対 1 に対応します（`plant-stage-N` が texture key。PL-GROW-01〜05）。
-
-- 表示する画像は `selectPlantStageAsset(world)` が **`WorldState.plantStage` だけ**から決めます。Stage 0 は何も表示しません。0〜5 以外（仕様に絵がない値）は例外にします。描画やアニメーションの完了が Stage を進める・決めることはなく、Wave の長さ・順序・再生速度の扱いも変えていません。
-- 5 枚は同じ畑の枠を共有するため、接地点（`groundAnchor` (256, 491)）・スケール（0.2）・配置（島 PNG 座標 (380, 674)。複合画像の畑の少し右で、待機する小人 2 を左に立たせる位置）は全段階で共通です。Stage が変わっても畑は動きません。
-- 現在のルールで到達する Stage は 1 だけです（Turn 2 の `farm-expands` の完了時）。Stage 2〜5 に到達するルールはまだありません。`plantStage` を直接 2〜5 にしたときの描画は単体テストで確認しています。
-- 小人の農作業（複合画像）と単独の畑は作業中の一時的な絵として従来どおり残り、永続する畑とは別物です。`plantStage` が 1 になると同時にこれらが消え、永続する畑に切り替わります。
-- **Human Review で決めること**: 最終的なスケール・配置・重なり・島の見た目とのつながり・360x640 / 390x844 での読みやすさ、`final` の絵を製品表示に使ってよいか、農作業の絵から永続する畑への切り替わり（現在は瞬時の入れ替えで、クロスフェードはありません）。自動テストが確認するのはファイルと統合の性質だけです。
-
 ## ディレクトリ構成
 
 - `src/main.ts`: Phaser の起動設定
 - `src/game/`: Phaser に依存しない純粋な TypeScript の WorldState と Game Logic。
-  - `worldState.ts`: `WorldState`（`plantStage`・`shelterStage`・`animalStage`、`fireStage` の 2 を含む）と初期状態、意味判定 `hasSproutPlot`（Turn 2 の芽の畑）/ `hasUpgradedHut` / `hasCookingFire` / `hasCaredForAnimal`
+  - `worldState.ts`: `WorldState`（`plantStage`・`shelterStage`・`animalStage`、`fireStage` の 2 を含む）と初期状態、意味判定 `hasSproutPlot`（Turn 2 の芽の畑。拡張した畑を含む）/ `hasUpgradedHut` / `hasCookingFire` / `hasCaredForAnimal`
   - `waves.ts`: Wave の定義（Turn 1 の `FIRE_WARMING_WAVES`、Turn 2 の `PLANT_LIFE_WAVES`。順序と、各 Wave 完了時の WorldState 変更）
   - `timing.ts`: 再生時間と再生速度の唯一の境界。Wave の長さは再生速度 1x の論理ミリ秒で、将来の一括再生速度変更はここを通ります。
   - `sliceGame.ts`: 入力ガード（🌱 は Turn 1 完了後に一度だけ）、Wave 再生中の入力ロック、論理クロックによる Wave の順次再生、選択可能な要素 `selectableElements`
@@ -246,7 +236,6 @@ sips -s format png asset-source/initial-turn1/campfire_frame_b_1254.jpg --out as
   - `animation.ts`: スナップショットから小人・火・動物のidleの見た目を計算する純粋関数（Phaser 非依存）
   - `worldAssets.ts`: 島・雨よけ・動物・焚き火 2 フレームの PNG のメタデータ（キー、ファイル名、サイズ、接地点、スケール、配置）
   - `turn2Assets.ts`: Turn 2 の PNG（畑 3 フレーム・動物 2 フレーム・鍋 2 フレーム・小屋）のメタデータとアニメーション契約
-  - `plantAssets.ts`: 永続する植物画像（Stage 1〜5）のメタデータと、`WorldState` から表示する 1 枚を選ぶ `selectPlantStageAsset`（Stage 0 は何も表示しない）
   - `residents.ts`: `WorldState.residents` と論理クロックから、各小人（Turn 2 の分裂演出を含む）の見た目を計算する純粋関数（Phaser 非依存）
   - `lifeAnimation.ts`: スナップショットから Turn 2 の畑・小屋／調理の火／動物のレベルアップの見た目を計算する純粋関数（Phaser 非依存。共通のレベルアップ演出 `levelUpBlend` は `animation.ts`）
 - `scripts/`: ランタイム世界 PNG を元素材から再生成する Node スクリプト（`deriveWorldAssets.mjs`、小屋用の `deriveHutAsset.mjs`、畑用の `deriveFarmPlotAsset.mjs`）

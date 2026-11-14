@@ -34,15 +34,14 @@ function activePlantWave(snapshot: SliceSnapshot) {
 
 export interface LifeHuman {
   readonly pose: HumanPose;
-  // 0 while the composite farm-work art (which contains the human) stands in.
+  // 0 once the composite farm-work art (which contains the human) stands in.
   readonly alpha: number;
 }
 
 // The human sprite during Turn 2, or null while Turn 1's pose logic applies
 // (before Turn 2 starts). The human walks to the plot and stands there until the
 // water Wave begins; from then on the composite farm art (which contains the
-// human, at the same spot) represents the human, until the plot is established
-// (hasSproutPlot). The composite is then gone, so the idle human stands there again.
+// human, at the same spot) represents the human.
 export function computeLifeHuman(snapshot: SliceSnapshot): LifeHuman | null {
   const wave = activePlantWave(snapshot);
   const isCold = snapshot.world.isCold;
@@ -53,9 +52,7 @@ export function computeLifeHuman(snapshot: SliceSnapshot): LifeHuman | null {
     if (step.direction === null) return { pose: stillPose('idle', isCold, step), alpha: 1 };
     return { pose: walkingPose(step, step.direction, wave.elapsedMs, isCold), alpha: 1 };
   }
-  if (wave !== null || hasSproutPlot(snapshot.world)) {
-    return { pose: atPlot, alpha: hasSproutPlot(snapshot.world) ? 1 : 0 };
-  }
+  if (wave !== null || hasSproutPlot(snapshot.world)) return { pose: atPlot, alpha: 0 };
   return null;
 }
 
@@ -68,23 +65,19 @@ export interface FarmVisual {
 
 const NO_FARM: FarmVisual = { frame: null, alpha: 0, scale: 1 };
 
-// The transient composite farm-work frame, from the Wave sequence alone: water1 for
-// the whole 1.5 s water Wave, harvest2 for the whole 1.5 s harvest Wave, then harvest1
-// held while the farm-expands Wave plays. Each pose is one continuous frame (no
-// alternation); the plot pops in with a small scale-up at the start of the water Wave.
-// It is work in progress, not the durable plot: once the sprout plot is established
-// (the farm-expands Wave has completed) it is gone and the durable plant asset for
-// the authoritative stage (plantAssets.ts) is what stays.
+// The composite farm-work frame, from the Wave sequence alone: water1 for the whole
+// 1.5 s water Wave, harvest2 for the whole 1.5 s harvest Wave, then harvest1 held
+// for good. Each pose is one continuous frame (no alternation); the plot pops in
+// with a small scale-up at the start of the water Wave.
 export function computeFarmVisual(snapshot: SliceSnapshot): FarmVisual {
   const wave = activePlantWave(snapshot);
-  if (hasSproutPlot(snapshot.world)) return NO_FARM;
   if (wave?.id === 'human-walks-to-plot') return NO_FARM;
   if (wave?.id === 'human-waters-plot') {
     return { frame: FARM_WATER_FRAME, alpha: 1, scale: 0.9 + 0.1 * easeOutBack(wave.progress / 0.15) };
   }
   if (wave?.id === 'human-harvests-plot') return { frame: FARM_HARVEST_FRAMES[1], alpha: 1, scale: 1 };
-  // The farm-expands Wave (the state is set when it completes): settled on harvest1.
-  if (wave?.id === 'farm-expands') return { frame: FARM_HARVEST_FRAMES[0], alpha: 1, scale: 1 };
+  // The farm-expands Wave (the state is set when it completes) and everything after: settled on harvest1.
+  if (wave?.id === 'farm-expands' || hasSproutPlot(snapshot.world)) return { frame: FARM_HARVEST_FRAMES[0], alpha: 1, scale: 1 };
   return NO_FARM;
 }
 
@@ -95,20 +88,20 @@ export interface FarmTileVisual {
 
 // The standalone plot tiles (LAYOUT.farmPlotTiles, in reveal order). During the
 // farm-expands Wave they grow in one after another across the first 70% of the
-// Wave (each over 30%). They are transient work art like the composite: before the
-// Wave and once the sprout plot is established they are hidden, because the one
-// continuous durable plot is the plant asset for the authoritative stage.
+// Wave (each over 30%); afterwards, once the farm has expanded, they all stay.
 export function computeFarmTiles(snapshot: SliceSnapshot): readonly FarmTileVisual[] {
   const count = LAYOUT.farmPlotTiles.length;
   const wave = snapshot.activeWave;
-  if (wave?.id === 'farm-expands' && !hasSproutPlot(snapshot.world)) {
+  if (wave?.id === 'farm-expands') {
     return LAYOUT.farmPlotTiles.map((_, index) => {
       const start = (0.7 * index) / Math.max(1, count - 1);
       const local = clamp01((wave.progress - start) / 0.3);
       return { alpha: clamp01(local * 2), scale: local === 0 ? 0.7 : 0.7 + 0.3 * easeOutBack(local) };
     });
   }
-  return LAYOUT.farmPlotTiles.map(() => ({ alpha: 0, scale: 1 }));
+  // The Wave has completed: the Turn 2 sprout plot (the expanded farm) exists for good.
+  const expanded = hasSproutPlot(snapshot.world);
+  return LAYOUT.farmPlotTiles.map(() => ({ alpha: expanded ? 1 : 0, scale: 1 }));
 }
 
 export interface ShelterVisual {

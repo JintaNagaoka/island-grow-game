@@ -11,7 +11,6 @@ import {
   FARM_WATER_HUMAN_FEET,
   HUT_ASSET,
 } from './turn2Assets';
-import { PLANT_STAGE_ASSETS } from './plantAssets';
 import { FIRE_ASSET, WORLD_ASSETS, type WorldAsset } from './worldAssets';
 
 // All layout is expressed as ratios of the 9:16 design resolution so aspect
@@ -117,9 +116,6 @@ export const LAYOUT = {
   plotHuman: PLOT_HUMAN,
   // Ground points (tile anchors) of the standalone plot tiles, in reveal order.
   farmPlotTiles: FARM_PLOT_TILES,
-  // The durable plant plot (every Stage 1..5 asset stands on this one ground point).
-  // The transient work art above is replaced by it once the plot is established.
-  plantPlot: assetGround(PLANT_STAGE_ASSETS[0]),
   hut: assetGround(HUT_ASSET),
   cookingFire: assetGround(COOK_STEAM_FRAMES[0]),
   // The human's walk from the fire to the plot. The warm-up spot is a pocket

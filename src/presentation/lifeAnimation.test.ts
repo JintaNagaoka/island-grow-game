@@ -15,7 +15,6 @@ import {
   loopFrame,
 } from './lifeAnimation';
 import { walkRoute } from './humanWalk';
-import { selectPlantStageAsset } from './plantAssets';
 import {
   ANIMAL_EAT_FRAMES,
   COOK_STEAM_FRAMES,
@@ -145,19 +144,14 @@ describe('Turn 2 sequence', () => {
     expect(FARM_WATER_FRAME.filename).toBe('human_farm_water1.png');
   });
 
-  it('settles on harvest1 for the farm-expands Wave only; the transient composite is gone once the plot is established', () => {
-    for (const snapshot of [inWave('farm-expands', 0), ...sample('farm-expands')]) {
-      expect(snapshot.world.plantStage).toBe(0);
+  it('settles on harvest1 for the farm-expands Wave and for good afterwards', () => {
+    for (const snapshot of [inWave('farm-expands', 0), ...sample('farm-expands'), ...sample('shelter-levels-up', 5), ...sample('animal-eats', 5), turn2At(TURN2_MS + 1000).snapshot()]) {
       expect(computeFarmVisual(snapshot)).toMatchObject({ frame: FARM_HARVEST_FRAMES[0], alpha: 1, scale: 1 });
-    }
-    for (const snapshot of [inWave('shelter-levels-up', 0), ...sample('shelter-levels-up', 5), ...sample('animal-eats', 5), turn2At(TURN2_MS + 1000).snapshot()]) {
-      expect(snapshot.world.plantStage).toBe(1);
-      expect(computeFarmVisual(snapshot)).toMatchObject({ frame: null, alpha: 0 });
     }
     expect(FARM_HARVEST_FRAMES[0].filename).toBe('human_farm_harvest1.png');
   });
 
-  it('grows the standalone plot tiles in one after another during farm-expands, then hides them', () => {
+  it('grows the standalone plot tiles in one after another during farm-expands, then keeps them', () => {
     const count = LAYOUT.farmPlotTiles.length;
     // Exactly three standalone four-plant components (plus the composite plot): 16 plants, not a carpet.
     expect(count).toBe(3);
@@ -179,30 +173,17 @@ describe('Turn 2 sequence', () => {
       previous = tiles;
     }
     expect(sawPartial).toBe(true);
-    // By the end of the Wave every tile is fully in. They are transient work art: once the
-    // Wave completes and plantStage is 1, they are hidden for the rest of Turn 2 and after.
+    // By the end of the Wave every tile is fully in, and it stays so for the rest of Turn 2 and after.
     expect(computeFarmTiles(inWave('farm-expands', 0.999)).every((tile) => tile.alpha > 0.99)).toBe(true);
-    for (const snapshot of [inWave('shelter-levels-up', 0), ...sample('shelter-levels-up', 4), ...sample('animal-eats', 4), turn2At(TURN2_MS + 5000).snapshot()]) {
-      expect(computeFarmTiles(snapshot).every((tile) => tile.alpha === 0)).toBe(true);
+    for (const snapshot of [...sample('shelter-levels-up', 4), ...sample('animal-eats', 4), turn2At(TURN2_MS + 5000).snapshot()]) {
+      expect(computeFarmTiles(snapshot).every((tile) => tile.alpha === 1 && tile.scale === 1)).toBe(true);
     }
   });
 
-  it('never shows the transient farm work beside the durable plot: the composite and tiles end exactly when plantStage becomes 1', () => {
-    const game = turn2At(startOf('farm-expands'));
-    const seen = { transientOnly: 0, durableOnly: 0, both: 0 };
-    for (let i = 0; i < 400; i += 1) {
-      const snapshot = game.snapshot();
-      const transient =
-        computeFarmVisual(snapshot).frame !== null || computeFarmTiles(snapshot).some((tile) => tile.alpha > 0);
-      const durable = selectPlantStageAsset(snapshot.world) !== null;
-      if (transient && durable) seen.both += 1;
-      else if (transient) seen.transientOnly += 1;
-      else if (durable) seen.durableOnly += 1;
-      game.advance(20);
+  it('shows no second farm object: the composite is never hidden once the expansion starts', () => {
+    for (const snapshot of [...sample('farm-expands', 20), turn2At(TURN2_MS + 1).snapshot()]) {
+      expect(computeFarmVisual(snapshot).frame).not.toBeNull();
     }
-    expect(seen.transientOnly).toBeGreaterThan(0);
-    expect(seen.durableOnly).toBeGreaterThan(0);
-    expect(seen.both).toBe(0);
   });
 
   it('levels the shelter up into a hut: the hut grows out of it, then replaces it', () => {
@@ -360,20 +341,18 @@ describe('Turn 2 sequence', () => {
       game.advance(100);
       const snapshot = game.snapshot();
       expect(computeShelterVisual(snapshot)).toMatchObject({ hutAlpha: 1, shelterAlpha: 0 });
-      // The transient farm work has ended: the standing Human is drawn again at the plot.
-      expect(computeLifeHuman(snapshot)).toMatchObject({ alpha: 1, pose: { asset: 'idle', x: LAYOUT.plotHuman.x, y: LAYOUT.plotHuman.y } });
+      expect(computeLifeHuman(snapshot)?.alpha).toBe(0);
       expect(computeCookingFireVisual(snapshot)).toMatchObject({ visible: true, alpha: 1, scale: 1 });
       expect(computeFireVisual(snapshot).visible).toBe(false);
       expect(computeAnimalVisual(snapshot)).toMatchObject({ wildAlpha: 0, eatAlpha: 1 });
       const farm = computeFarmVisual(snapshot);
-      expect(farm).toMatchObject({ frame: null, alpha: 0 });
-      expect(computeFarmTiles(snapshot).every((tile) => tile.alpha === 0)).toBe(true);
-      seen.farm.add(selectPlantStageAsset(snapshot.world)?.textureKey ?? 'none');
+      expect(farm).toMatchObject({ alpha: 1, scale: 1 });
+      seen.farm.add(farm.frame?.textureKey ?? 'none');
       seen.pot.add(computeCookingFireVisual(snapshot).frameTextureKey);
       seen.eat.add(computeAnimalVisual(snapshot).frameTextureKey);
     }
-    // The durable plant plot stays on Stage 1 (it neither alternates nor grows by itself).
-    expect([...seen.farm]).toEqual(['plant-stage-1']);
+    // The farm is settled on harvest1 (no more alternation).
+    expect([...seen.farm]).toEqual(['farm-harvest-1']);
     expect(seen.pot.size).toBe(2);
     expect(seen.eat.size).toBe(2);
   });
