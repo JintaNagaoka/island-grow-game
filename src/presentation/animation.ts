@@ -44,6 +44,9 @@ export interface HumanPose {
   // is never inferred from the pose; every other pose selects an approved
   // normal/isCold PNG by isCold alone.
   readonly coldOverlay: boolean;
+  // Multiplier on the shared human sprite scale. Only the composite work frames set
+  // it (humanActions.ts), to give each generated canvas the approved head size.
+  readonly sizeMul?: number;
 }
 
 export interface FireVisual {

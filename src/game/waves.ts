@@ -1,9 +1,11 @@
 import { BEAT_MS, FARM_WORK_MS, PLANT_WAVE_BEATS, SPLIT_WAVE_MS, TRUE_WAVE_BEATS, WAVE_DURATIONS_MS } from './timing';
 import {
+  SECOND_RESIDENT_ID,
   THIRD_RESIDENT_ID,
   VILLAGE_RESIDENT_IDS,
   addResidents,
   moveResident,
+  revealPlantStage,
   revealProp,
   settleFirstResidentAtFire,
   settleSecondResidentAtPlot,
@@ -26,6 +28,7 @@ export type WaveId =
   | 'animal-eats'
   // Turn 3 (🪨)
   | 'farm-matures'
+  | 'farm-blossoms'
   | 'workshop-appears'
   | 'human-divides'
   | 'human-walks-to-workshop'
@@ -87,7 +90,7 @@ export const FIRE_WARMING_WAVES: readonly Wave[] = [
 const beats = (count: number): number => Math.round(count * BEAT_MS);
 
 // Turn 2: the plant event (🌱 after Turn 1). The persistent WorldState changes are
-// the sprout plot (plantStage 1, once the farm has grown in), the shelter→hut, fire→cooking fire and animal→cared-for level-ups;
+// the plant plot (sprouts, then saplings: plantStage 2, once the farm-expands Wave completes), the shelter→hut, fire→cooking fire and animal→cared-for level-ups;
 // the walk and farm-work Waves are presentation beats whose order the Wave sequence
 // itself guarantees. The population split (1 -> 2) happens at Turn 2 start (splitResident) and nothing else (animal count, fences,
 // ponds) changes.
@@ -120,11 +123,12 @@ export const PLANT_LIFE_WAVES: readonly Wave[] = [
     complete: (world) => world,
   },
   {
-    // Settle on harvest1 while standalone plot tiles grow in, one after another, to
-    // the final farm. The sprout plot (plantStage 1) is established, once, when it completes.
+    // The composite farm-work art hands over to the plant plot: sprouts (plant stage 1)
+    // grow in and then become saplings (stage 2), the two plant Events of Turn 2
+    // (plant-introduced, plant-tended). The visible plant is stage 2 once this completes.
     id: 'farm-expands',
     durationMs: beats(PLANT_WAVE_BEATS.farmExpands),
-    complete: (world) => ({ ...world, plantStage: 1 }),
+    complete: (world) => revealPlantStage(world, 2),
   },
   {
     // The rain shelter develops into a hut.
@@ -154,8 +158,13 @@ const reveal =
 // Turn 3 (🪨 after 🔥 → 🌱). Every Wave presents one resolved Rule Event, in the
 // order the Rule Engine produced them. The third resident does the transient work;
 // durable props are revealed when the Wave that builds them completes.
+//
+// Who does the work, and where each resident stands when a Wave ends, is Presentation's
+// concern (crew.ts); the `place` set here is only the visible mirror of it, so the next
+// Wave starts where the last one left the resident. Waves present the plant Events that
+// raise the plant (plant-fruits, plant-spreads) so the plot shows each Stage it reaches.
 export const ROCK_WAVES: readonly Wave[] = [
-  { id: 'farm-matures', event: 'plant-fruits', durationMs: beats(TRUE_WAVE_BEATS.farmMatures), complete: reveal('mature-farm') },
+  { id: 'farm-matures', event: 'plant-fruits', durationMs: beats(TRUE_WAVE_BEATS.farmMatures), complete: (world) => revealPlantStage(world, 3) },
   { id: 'workshop-appears', event: 'stone-workbench', durationMs: beats(TRUE_WAVE_BEATS.workshopAppears), complete: reveal('stone-workshop') },
   {
     id: 'human-divides',
@@ -177,14 +186,35 @@ export const ROCK_WAVES: readonly Wave[] = [
     complete: (world) => moveResident(world, THIRD_RESIDENT_ID, 'hut-site'),
   },
   { id: 'human-builds-hut', event: 'homes-built', durationMs: beats(TRUE_WAVE_BEATS.humanBuildsHut), complete: reveal('second-hut') },
-  { id: 'furnace-lights', event: 'furnace-built', durationMs: beats(TRUE_WAVE_BEATS.furnaceLights), complete: (world) => world },
-  { id: 'cave-furnished', event: 'cave-furnished', durationMs: beats(TRUE_WAVE_BEATS.caveFurnished), complete: reveal('practical-cave') },
+  {
+    // The furnace is built beside the workshop and stays: the Rule Engine's furnace-built
+    // result is the visible 'furnace' prop, revealed when this Wave completes.
+    id: 'furnace-lights',
+    event: 'furnace-built',
+    durationMs: beats(TRUE_WAVE_BEATS.furnaceLights),
+    complete: (world) => moveResident(reveal('furnace')(world), THIRD_RESIDENT_ID, 'furnace'),
+  },
+  { id: 'farm-blossoms', event: 'plant-spreads', durationMs: beats(TRUE_WAVE_BEATS.farmBlossoms), complete: (world) => revealPlantStage(world, 4) },
+  {
+    // The second resident walks from the plot to the cave, goes in, works inside and comes
+    // out; the cave's furnishings appear after that work.
+    id: 'cave-furnished',
+    event: 'cave-furnished',
+    durationMs: beats(TRUE_WAVE_BEATS.caveFurnished),
+    complete: (world) => moveResident(reveal('practical-cave')(world), SECOND_RESIDENT_ID, 'cave'),
+  },
   {
     id: 'livestock-fenced',
     event: 'fence-built',
     durationMs: beats(TRUE_WAVE_BEATS.livestockFenced),
     // The empty bucket is the animal's water basin: dry, because no freshwater exists yet.
-    complete: (world) => moveResident(reveal('fence', 'feed-area', 'empty-bucket', 'livestock-parent')(world), THIRD_RESIDENT_ID, 'pen'),
+    // The second resident, back from the cave, is at the plot again.
+    complete: (world) =>
+      moveResident(
+        moveResident(reveal('fence', 'feed-area', 'empty-bucket', 'livestock-parent')(world), THIRD_RESIDENT_ID, 'pen'),
+        SECOND_RESIDENT_ID,
+        'plot',
+      ),
   },
   { id: 'livestock-breeds', event: 'animal-family', durationMs: beats(TRUE_WAVE_BEATS.livestockBreeds), complete: reveal('livestock-child') },
   {
@@ -212,10 +242,35 @@ export const WATER_WAVES: readonly Wave[] = [
     durationMs: beats(TRUE_WAVE_BEATS.villageGathers),
     complete: (world) => addResidents(world, VILLAGE_RESIDENT_IDS, 'village'),
   },
-  { id: 'village-built', event: 'village-built', durationMs: beats(TRUE_WAVE_BEATS.villageBuilt), complete: reveal('village-homes') },
-  { id: 'ecosystem-flourishes', event: 'ecosystem-flourishes', durationMs: beats(TRUE_WAVE_BEATS.ecosystemFlourishes), complete: (world) => world },
-  { id: 'shrine-appears', event: 'cave-shrine', durationMs: beats(TRUE_WAVE_BEATS.shrineAppears), complete: reveal('shrine') },
-  { id: 'epilogue-growth', event: 'epilogue-growth', durationMs: beats(TRUE_WAVE_BEATS.epilogueGrowth), complete: (world) => world },
+  {
+    // The added homes are built by the new residents: each walks to its home, works, and
+    // the home stands once it has. They end where they work.
+    id: 'village-built',
+    event: 'village-built',
+    durationMs: beats(TRUE_WAVE_BEATS.villageBuilt),
+    complete: (world) =>
+      moveResident(
+        moveResident(moveResident(reveal('village-homes')(world), VILLAGE_RESIDENT_IDS[0], 'home-a'), VILLAGE_RESIDENT_IDS[1], 'home-b'),
+        VILLAGE_RESIDENT_IDS[2],
+        'workshop',
+      ),
+  },
+  { id: 'ecosystem-flourishes', event: 'ecosystem-flourishes', durationMs: beats(TRUE_WAVE_BEATS.ecosystemFlourishes), complete: (world) => revealPlantStage(world, 5) },
+  {
+    // The second resident walks to the cave, goes in and works; the exterior becomes the
+    // shrine afterwards and the resident comes out. (The cave Stage rises with `cave-shrine`.)
+    id: 'shrine-appears',
+    event: 'cave-shrine',
+    durationMs: beats(TRUE_WAVE_BEATS.shrineAppears),
+    complete: (world) => moveResident(reveal('shrine')(world), SECOND_RESIDENT_ID, 'cave'),
+  },
+  {
+    // The Epilogue Growth pass. The second resident walks back from the cave to the plot.
+    id: 'epilogue-growth',
+    event: 'epilogue-growth',
+    durationMs: beats(TRUE_WAVE_BEATS.epilogueGrowth),
+    complete: (world) => moveResident(world, SECOND_RESIDENT_ID, 'plot'),
+  },
   { id: 'true-judged', event: 'ending-true', durationMs: beats(TRUE_WAVE_BEATS.trueJudged), complete: (world) => world },
   { id: 'guardian-transforms', event: 'guardian-transformed', durationMs: beats(TRUE_WAVE_BEATS.guardianTransforms), complete: reveal('guardians') },
 ];

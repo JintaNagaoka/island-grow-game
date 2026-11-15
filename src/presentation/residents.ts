@@ -1,7 +1,7 @@
 import type { SliceSnapshot } from '../game/sliceGame';
 import { FIRST_RESIDENT_ID, SECOND_RESIDENT_ID, type Resident } from '../game/worldState';
 import { clamp01, computeHumanPose, easeOutBack, type HumanPose } from './animation';
-import { computeCrewVisuals, type CrewLayers } from './crew';
+import { computeCrewVisuals, computeFounderVisual, type CrewLayers } from './crew';
 import { LAYOUT } from './layout';
 import { computeLifeHuman } from './lifeAnimation';
 
@@ -25,8 +25,9 @@ export interface ResidentVisual {
   readonly scale: number;
   // Horizontal shake offset in design pixels.
   readonly shakeX: number;
-  // The target object and effect drawn as their own layers beside the human `pose`.
-  // Absent for a resident who holds nothing and raises no effect.
+  // The work effect drawn as its own layer beside the human `pose`. Composite action
+  // frames may bake in a tool or load; buildings and world state remain separate.
+  // Absent for a resident who raises no effect.
   readonly layers?: CrewLayers;
 }
 
@@ -58,6 +59,10 @@ export function computeResidentVisuals(snapshot: SliceSnapshot): readonly Reside
     (resident) => resident.id === FIRST_RESIDENT_ID || resident.id === SECOND_RESIDENT_ID,
   );
   const visuals = founders.map((resident, index): ResidentVisual => {
+    // From Turn 3 a founder can have autonomous work (a Wave routine, a role in the village, or
+    // a place away from the Turn 2 post): crew.ts then draws them, as one resident only once.
+    const working = computeFounderVisual(snapshot, resident);
+    if (working !== null) return working;
     if (!isFarmResident(resident)) {
       // At the fire: the Turn 1 completed pose. During the split every resident
       // shares this exact ground point; only the original shakes and the new pops.

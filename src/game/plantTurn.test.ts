@@ -122,7 +122,8 @@ describe('Turn 2 completion', () => {
       turn: 0,
       selectedElements: ['fire', 'plant'],
       fireStage: 2,
-      plantStage: 1,
+      // Turn 2 raises the plant twice (plant-introduced, plant-tended): saplings are visible.
+      plantStage: 2,
       shelterStage: 2,
       animalStage: 2,
       humanStage: 2,
@@ -181,11 +182,11 @@ describe('Turn 2 completion', () => {
       ...base,
       residents: [first, { ...second, place: 'plot', target: null, motion: 'idle' }],
     });
-    // The sprout plot is established when the water Wave completes; the farm has expanded when its Wave completes.
-    // plantStage stays 0 through the walk, water1 and harvest2; it becomes 1 only when farm-expands completes.
+    // The plant plot is revealed when the farm-expands Wave completes (sprouts, then saplings).
+    // plantStage stays 0 through the walk, water1 and harvest2; it becomes 2 only when farm-expands completes.
     expect(effects.get('human-waters-plot')).toEqual(base);
     expect(effects.get('human-harvests-plot')).toEqual(base);
-    expect(effects.get('farm-expands')).toEqual({ ...base, plantStage: 1 });
+    expect(effects.get('farm-expands')).toEqual({ ...base, plantStage: 2 });
     expect(effects.get('shelter-levels-up')).toEqual({ ...base, shelterStage: 2 });
     // The fire levels up from 1 to 2 (the same fire, not a second one).
     expect(effects.get('cooking-starts')).toEqual({ ...base, fireStage: 2 });
@@ -216,14 +217,14 @@ describe('Turn 2 completion', () => {
     game.advance(1);
     expect(game.snapshot().activeWave?.id).toBe('farm-expands');
 
-    // ...and through the whole active farm-expands Wave; it becomes 1 exactly when that Wave completes.
+    // ...and through the whole active farm-expands Wave; it becomes 2 exactly when that Wave completes.
     game.advance(expand - 1);
     expect(game.snapshot().activeWave?.id).toBe('farm-expands');
     expect(world().plantStage).toBe(0);
     expect(hasSproutPlot(world())).toBe(false);
     game.advance(1);
     expect(game.snapshot().activeWave?.id).toBe('shelter-levels-up');
-    expect(world().plantStage).toBe(1);
+    expect(world().plantStage).toBe(2);
     expect(hasSproutPlot(world())).toBe(true);
     expect(hasUpgradedHut(world())).toBe(false);
 
@@ -438,7 +439,7 @@ describe('Turn 2 logical clock', () => {
     }
   });
 
-  it('establishes the plant state once: plantStage only ever goes 0, then 1 (at farm-expands), never 2', () => {
+  it('establishes the plant state once: the revealed plantStage only ever goes 0, then 2 (at farm-expands), never beyond in Turn 2', () => {
     const game = inTurn2();
     const seen: number[] = [];
     for (let t = 0; t < TURN2_MS + 200; t += 7) {
@@ -446,7 +447,7 @@ describe('Turn 2 logical clock', () => {
       if (seen[seen.length - 1] !== stage) seen.push(stage);
       game.advance(7);
     }
-    expect(seen).toEqual([0, 1]);
+    expect(seen).toEqual([0, 2]);
     expect(game.snapshot().completedWaves.filter((id) => id === 'farm-expands')).toHaveLength(1);
   });
 

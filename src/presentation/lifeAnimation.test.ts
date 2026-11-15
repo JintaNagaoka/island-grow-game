@@ -5,9 +5,9 @@ import { PLANT_LIFE_WAVES } from '../game/waves';
 import { WAVE_DURATIONS_MS } from '../game/timing';
 import { computeFireVisual, computeHumanPose } from './animation';
 import { LAYOUT } from './layout';
+import { computePlantVisual } from './plantGrowth';
 import {
   computeAnimalVisual,
-  computeFarmTiles,
   computeCookingFireVisual,
   computeFarmVisual,
   computeLifeHuman,
@@ -144,45 +144,29 @@ describe('Turn 2 sequence', () => {
     expect(FARM_WATER_FRAME.filename).toBe('human_farm_water1.png');
   });
 
-  it('settles on harvest1 for the farm-expands Wave and for good afterwards', () => {
-    for (const snapshot of [inWave('farm-expands', 0), ...sample('farm-expands'), ...sample('shelter-levels-up', 5), ...sample('animal-eats', 5), turn2At(TURN2_MS + 1000).snapshot()]) {
-      expect(computeFarmVisual(snapshot)).toMatchObject({ frame: FARM_HARVEST_FRAMES[0], alpha: 1, scale: 1 });
-    }
+  it('hands the composite farm-work art (human and old plot) over to the independent resident and the plant plot', () => {
+    // The composite starts the Wave at full strength on harvest1 and is gone for good once it has handed over.
+    expect(computeFarmVisual(inWave('farm-expands', 0))).toMatchObject({ frame: FARM_HARVEST_FRAMES[0], alpha: 1 });
     expect(FARM_HARVEST_FRAMES[0].filename).toBe('human_farm_harvest1.png');
-  });
-
-  it('grows the standalone plot tiles in one after another during farm-expands, then keeps them', () => {
-    const count = LAYOUT.farmPlotTiles.length;
-    // Exactly three standalone four-plant components (plus the composite plot): 16 plants, not a carpet.
-    expect(count).toBe(3);
-    // Hidden until the Wave starts (water and harvest Waves).
-    for (const id of ['human-walks-to-plot', 'human-waters-plot', 'human-harvests-plot']) {
-      expect(computeFarmTiles(inWave(id, 0.9)).every((tile) => tile.alpha === 0)).toBe(true);
-    }
-    expect(computeFarmTiles(inWave('farm-expands', 0)).every((tile) => tile.alpha === 0)).toBe(true);
-    // Growing: the number of visible tiles never decreases, and each tile's alpha and scale never go down.
-    let previous = computeFarmTiles(inWave('farm-expands', 0));
-    let sawPartial = false;
+    let previous = 1;
     for (const snapshot of sample('farm-expands', 80)) {
-      const tiles = computeFarmTiles(snapshot);
-      tiles.forEach((tile, i) => {
-        expect(tile.alpha).toBeGreaterThanOrEqual(previous[i].alpha - 1e-12);
-      });
-      const visible = tiles.filter((tile) => tile.alpha > 0).length;
-      if (visible > 0 && visible < count) sawPartial = true;
-      previous = tiles;
+      const farm = computeFarmVisual(snapshot);
+      expect(farm.alpha).toBeLessThanOrEqual(previous + 1e-12);
+      previous = farm.alpha;
+      // The resident is never lost in the swap: composite + independent sprite always add up to one resident.
+      expect(farm.alpha + (computeLifeHuman(snapshot)?.alpha ?? 0)).toBeCloseTo(1, 9);
     }
-    expect(sawPartial).toBe(true);
-    // By the end of the Wave every tile is fully in, and it stays so for the rest of Turn 2 and after.
-    expect(computeFarmTiles(inWave('farm-expands', 0.999)).every((tile) => tile.alpha > 0.99)).toBe(true);
-    for (const snapshot of [...sample('shelter-levels-up', 4), ...sample('animal-eats', 4), turn2At(TURN2_MS + 5000).snapshot()]) {
-      expect(computeFarmTiles(snapshot).every((tile) => tile.alpha === 1 && tile.scale === 1)).toBe(true);
+    for (const snapshot of [inWave('farm-expands', 0.6), inWave('farm-expands', 0.999), ...sample('shelter-levels-up', 5), ...sample('animal-eats', 5), turn2At(TURN2_MS + 1000).snapshot()]) {
+      expect(computeFarmVisual(snapshot).frame, 'the old plot is not drawn beside the plant plot').toBeNull();
+      expect(computeLifeHuman(snapshot)?.alpha).toBe(1);
     }
   });
 
-  it('shows no second farm object: the composite is never hidden once the expansion starts', () => {
-    for (const snapshot of [...sample('farm-expands', 20), turn2At(TURN2_MS + 1).snapshot()]) {
-      expect(computeFarmVisual(snapshot).frame).not.toBeNull();
+  it('never draws the composite human and the independent resident at full strength together', () => {
+    for (const snapshot of [...sample('human-waters-plot', 10), ...sample('human-harvests-plot', 10), ...sample('farm-expands', 40)]) {
+      const composite = computeFarmVisual(snapshot).alpha;
+      const independent = computeLifeHuman(snapshot)?.alpha ?? 0;
+      expect(composite + independent).toBeLessThanOrEqual(1 + 1e-9);
     }
   });
 
@@ -341,18 +325,18 @@ describe('Turn 2 sequence', () => {
       game.advance(100);
       const snapshot = game.snapshot();
       expect(computeShelterVisual(snapshot)).toMatchObject({ hutAlpha: 1, shelterAlpha: 0 });
-      expect(computeLifeHuman(snapshot)?.alpha).toBe(0);
+      // The resident tends the plot as an independent sprite; the composite has been replaced.
+      expect(computeLifeHuman(snapshot)?.alpha).toBe(1);
       expect(computeCookingFireVisual(snapshot)).toMatchObject({ visible: true, alpha: 1, scale: 1 });
       expect(computeFireVisual(snapshot).visible).toBe(false);
       expect(computeAnimalVisual(snapshot)).toMatchObject({ wildAlpha: 0, eatAlpha: 1 });
       const farm = computeFarmVisual(snapshot);
-      expect(farm).toMatchObject({ alpha: 1, scale: 1 });
       seen.farm.add(farm.frame?.textureKey ?? 'none');
       seen.pot.add(computeCookingFireVisual(snapshot).frameTextureKey);
       seen.eat.add(computeAnimalVisual(snapshot).frameTextureKey);
     }
-    // The farm is settled on harvest1 (no more alternation).
-    expect([...seen.farm]).toEqual(['farm-harvest-1']);
+    // No composite farm art remains (the plant plot is drawn from plantGrowth.ts).
+    expect([...seen.farm]).toEqual(['none']);
     expect(seen.pot.size).toBe(2);
     expect(seen.eat.size).toBe(2);
   });
@@ -363,7 +347,7 @@ describe('Turn 2 visuals follow the logical clock only', () => {
     const farm = computeFarmVisual(snapshot);
     return {
       life: computeLifeHuman(snapshot),
-      tiles: computeFarmTiles(snapshot),
+      plant: computePlantVisual(snapshot),
       farm: { ...farm, frame: farm.frame?.textureKey ?? null },
       shelter: computeShelterVisual(snapshot),
       fire: computeFireVisual(snapshot),

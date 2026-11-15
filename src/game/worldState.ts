@@ -17,7 +17,13 @@ export type ResidentPlace =
   | 'hut-site'
   | 'riverbed'
   | 'pen'
-  | 'village';
+  | 'village'
+  // Turn 3 / Turn 4 places added for the division of labour: beside the finished
+  // furnace, in front of the cave entrance, and at the two added homes.
+  | 'furnace'
+  | 'cave'
+  | 'home-a'
+  | 'home-b';
 export type ResidentMotion = 'idle' | 'walking';
 
 // One member of the population: a stable unique id plus the durable state its
@@ -34,9 +40,10 @@ export interface Resident {
 // of each (dry riverbed vs flowing, empty vs filled bucket) is decided by Presentation
 // from which ids are present, never by comparing numbers.
 export const PROP_IDS = [
-  'mature-farm',
   'stone-workshop',
   'second-hut',
+  // The finished stone furnace (the Rule Engine's furnace-built result).
+  'furnace',
   'practical-cave',
   'fence',
   'feed-area',
@@ -58,7 +65,10 @@ export interface WorldState {
   readonly selectedElements: readonly Element[];
   // 0: no fire. 1: the campfire. 2: it has levelled up into a cooking fire (Turn 2).
   readonly fireStage: number;
-  // 0: no plot. 1: the Turn 2 sprout plot exists (the expanded farm, once its Wave completes).
+  // The plant stage Presentation has revealed so far, 0 to 5 (0: nothing planted, 1 sprouts,
+  // 2 saplings, 3 red fruit, 4 blossoms, 5 golden fruit). It mirrors the Rule Engine's
+  // plant Stage but is raised one Wave at a time, each Wave presenting the plant Event that
+  // raised it; it is never read back by any rule.
   readonly plantStage: number;
   // 1: the rain shelter the island starts with. 2: it has levelled up into a hut.
   readonly shelterStage: number;
@@ -99,6 +109,10 @@ export const revealProp = (world: WorldState, id: PropId): WorldState =>
   world.props.includes(id) ? world : { ...world, props: [...world.props, id] };
 
 export const hasProp = (world: WorldState, id: PropId): boolean => world.props.includes(id);
+
+// Reveals the plant at `stage` (never lowers it): the visible mirror of one plant Event.
+export const revealPlantStage = (world: WorldState, stage: number): WorldState =>
+  world.plantStage >= stage ? world : { ...world, plantStage: stage };
 
 // Adds residents that are not yet present, all standing at `place`. Re-applying it
 // changes nothing, so a repeated reveal can never add a resident twice.

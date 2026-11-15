@@ -1,17 +1,12 @@
 import { DESIGN_HEIGHT, DESIGN_WIDTH } from './display';
+import { BUILD_STRIKE_REACH } from './humanActions';
 import {
   COOK_STEAM_FRAMES,
-  FARM_BASE_SCALE,
-  FARM_COMPOSITE_PLOT_CENTER_PX,
-  FARM_GRID,
-  FARM_TILE_STEP_PX,
-  FARM_TILE_CENTER_FROM_ANCHOR_PX,
-  FARM_PLOT_TILE,
   FARM_WATER_FRAME,
   FARM_WATER_HUMAN_FEET,
   HUT_ASSET,
 } from './turn2Assets';
-import { RIVER_SOURCE_PX, TRUE_PROPS } from './trueRouteAssets';
+import { CAVE_EXTERIOR_PLACEMENT, RIVER_SOURCE_PX, TRUE_PROPS } from './trueRouteAssets';
 import { FIRE_ASSET, WORLD_ASSETS, type WorldAsset } from './worldAssets';
 
 // All layout is expressed as ratios of the 9:16 design resolution so aspect
@@ -51,39 +46,27 @@ const PLOT_HUMAN: Point = {
   y: PLOT.y + (FARM_WATER_HUMAN_FEET.y - FARM_WATER_FRAME.groundAnchor.y) * FARM_WATER_FRAME.baseScale,
 };
 
-// The expanded farm: the composite plot (human_farm_harvest1) is the first cell of
-// an isometric grid; every other cell holds one standalone four-plant component,
-// spaced out (FARM_GRID.spacing) so grass shows between the patches. The list is in
-// reveal order, growing outward from the composite.
-const FARM_PLOT_TILES: readonly Point[] = (() => {
-  const scale = FARM_PLOT_TILE.baseScale;
-  const step = {
-    x: FARM_TILE_STEP_PX.x * scale * FARM_GRID.spacing,
-    y: FARM_TILE_STEP_PX.y * scale * FARM_GRID.spacing,
-  };
-  const center = {
-    x: PLOT.x + FARM_COMPOSITE_PLOT_CENTER_PX.x * FARM_BASE_SCALE,
-    y: PLOT.y + FARM_COMPOSITE_PLOT_CENTER_PX.y * FARM_BASE_SCALE,
-  };
-  // Cell (0, 0)'s top-face centre: the composite's centre sits at cell (0.5, 0.5).
-  const half = (FARM_GRID.compositeCells - 1) / 2;
-  const origin = { x: center.x - (half + half) * step.x, y: center.y - (half - half) * step.y };
-  const cells: { along: number; across: number }[] = [];
-  for (let along = 0; along < FARM_GRID.along; along += 1) {
-    for (let across = 0; across < FARM_GRID.across; across += 1) {
-      if (along < FARM_GRID.compositeCells && across < FARM_GRID.compositeCells) continue;
-      cells.push({ along, across });
-    }
-  }
-  cells.sort((a, b) => a.along + a.across - (b.along + b.across) || a.across - b.across);
-  return cells.map(({ along, across }) => ({
-    x: origin.x + (along + across) * step.x - FARM_TILE_CENTER_FROM_ANCHOR_PX.x * scale,
-    y: origin.y + (along - across) * step.y - FARM_TILE_CENTER_FROM_ANCHOR_PX.y * scale,
-  }));
-})();
-
 const at = (px: number, py: number): Point => ({ x: px, y: py });
 const lerp = (a: Point, b: Point, t: number): Point => ({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t });
+
+// The one plant plot. Every growth stage (plant-stage-1..5) stands on this single ground
+// contact, so a stage change never moves the plot. It sits just right of the Turn 2 plot
+// so the resident who tends it (PLOT_HUMAN) stands at its left corner instead of on it.
+const PLANT_PLOT = at(PLOT.x + 30, PLOT.y + 4);
+
+// How wide a village home is drawn relative to the second hut it reuses (provisional).
+export const VILLAGE_HOME_SCALE = 0.8;
+// Where the second hut's left (visible, lit) wall meets the ground, in hut-second.png
+// pixels: the builder's mallet face is aimed at this wall.
+export const HUT_WALL_PX = { x: 80, y: 380 } as const;
+const HUT_ANCHOR_PX = TRUE_PROPS.secondHut.groundAnchor;
+// The wall point of a hut standing at `ground` drawn at `scale`.
+const hutWall = (ground: Point, scale: number): Point =>
+  at(ground.x + (HUT_WALL_PX.x - HUT_ANCHOR_PX.x) * scale, ground.y + (HUT_WALL_PX.y - HUT_ANCHOR_PX.y) * scale);
+// Where a resident facing right stands so the strike frame's mallet face lands on `face`.
+const standLeftOf = (face: Point): Point => at(face.x - BUILD_STRIKE_REACH.x, face.y + BUILD_STRIKE_REACH.y);
+// ...and facing left, for a target on the resident's left.
+const standRightOf = (face: Point): Point => at(face.x + BUILD_STRIKE_REACH.x, face.y + BUILD_STRIKE_REACH.y);
 
 // Turn 3 / Turn 4 / Epilogue placements, in design pixels (all provisional: the
 // candidate art and its arrangement await human review). The riverbed runs from the
@@ -105,14 +88,32 @@ const TRUE_SPOTS = {
   springBank: at(RIVER_SOURCE.x + 18, RIVER_SOURCE.y + 22),
   // Mid-riverbed, where the channel is dug.
   digSite: lerp(RIVER_MOUTH, RIVER_SOURCE, 0.55),
-  farm: at(322, 518),
+  // The single plant plot's ground contact (every growth stage stands on it).
+  plantPlot: PLANT_PLOT,
   workshop: at(452, 642),
   secondHut: at(548, 702),
-  // Where the resident stands to build it (just right of it).
-  hutSite: at(478, 718),
+  // The second hut's visible left wall, and where the builder stands (facing right) so the
+  // strike frame's mallet face lands on it.
+  hutFace: hutWall(at(548, 702), TRUE_PROPS.secondHut.baseScale),
+  hutSite: standLeftOf(hutWall(at(548, 702), TRUE_PROPS.secondHut.baseScale)),
   // Where the resident stands to work the stone at the workshop (just left of it).
   workshopStand: at(414, 656),
+  // The stone-working station: the finished stone furnace stands beside the workshop. Its
+  // right face is what the builder strikes (from the right, facing left); the furnace
+  // never shares a ground point with the Turn 2 cooking fire.
+  furnace: at(388, 652),
+  furnaceFace: at(388 + 22, 652 - 8),
+  furnaceStand: standRightOf(at(388 + 22, 652 - 8)),
+  // Where stone is picked up before it is carried to the new homes.
+  stonePile: at(470, 664),
+  // The cave: the practical-cave furnishings stand on the path in front of it. The
+  // supplied shrine exterior replaces the baked cave mouth: it is placed on the island art
+  // by CAVE_EXTERIOR_PLACEMENT (its entrance on the baked entrance), and a resident walks
+  // from `caveFront` into `caveInside`, which is dark and behind the entrance.
   cave: at(378, 172),
+  caveHill: onIsland(CAVE_EXTERIOR_PLACEMENT.islandGround.x, CAVE_EXTERIOR_PLACEMENT.islandGround.y),
+  caveFront: onIsland(503, 222),
+  caveInside: onIsland(503, 150),
   pen: PEN,
   // The fence ring's centre is about 43 design px above its ground point.
   parent: at(PEN.x - 22, PEN.y - 26),
@@ -120,9 +121,20 @@ const TRUE_SPOTS = {
   // Just behind the fence ring, on the grass above it.
   feed: at(PEN.x + 24, PEN.y - 88),
   basin: at(PEN.x - 30, PEN.y + 38),
-  // Where the resident stands to build the fence and to pour water into the basin.
-  penGate: at(PEN.x - 74, PEN.y + 42),
+  // Where the resident stands to build the fence and to pour water into the basin: just left
+  // of the basin, so the bucket's rim is over it as the water is poured.
+  penGate: at(PEN.x - 56, PEN.y + 42),
   homes: [at(452, 742), at(596, 754)] as readonly Point[],
+  // The added homes' visible left walls, and where their builders stand (facing right) so the
+  // strike frame's mallet face lands on them.
+  homeFaces: [
+    hutWall(at(452, 742), TRUE_PROPS.secondHut.baseScale * VILLAGE_HOME_SCALE),
+    hutWall(at(596, 754), TRUE_PROPS.secondHut.baseScale * VILLAGE_HOME_SCALE),
+  ] as readonly Point[],
+  homeSites: [
+    standLeftOf(hutWall(at(452, 742), TRUE_PROPS.secondHut.baseScale * VILLAGE_HOME_SCALE)),
+    standLeftOf(hutWall(at(596, 754), TRUE_PROPS.secondHut.baseScale * VILLAGE_HOME_SCALE)),
+  ] as readonly Point[],
   villageResidents: [at(526, 770), at(556, 786), at(500, 792)] as readonly Point[],
 } as const;
 
@@ -159,8 +171,6 @@ export const LAYOUT = {
   // campfire's own ground point (it replaces the campfire).
   plot: PLOT,
   plotHuman: PLOT_HUMAN,
-  // Ground points (tile anchors) of the standalone plot tiles, in reveal order.
-  farmPlotTiles: FARM_PLOT_TILES,
   hut: assetGround(HUT_ASSET),
   cookingFire: assetGround(COOK_STEAM_FRAMES[0]),
   // The human's walk from the fire to the plot. The warm-up spot is a pocket

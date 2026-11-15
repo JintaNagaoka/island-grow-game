@@ -4,11 +4,11 @@ import { ROCK_WAVES, WATER_WAVES, type WaveId } from '../game/waves';
 import { LAYOUT } from './layout';
 import {
   SETTLEMENT_SLOTS,
+  computeFurnaceVisual,
   computeSettlementEffects,
   computeSettlementProps,
   computeVillageHomes,
   eatingAnimalRetirement,
-  farmTileRetirement,
   type PropSlot,
 } from './settlement';
 
@@ -24,7 +24,7 @@ describe('settlement props through the TRUE route', () => {
       expect(standing(snapshot)).toEqual([]);
       expect(computeVillageHomes(snapshot).every((home) => home.alpha === 0)).toBe(true);
       expect(computeSettlementEffects(snapshot)).toEqual([]);
-      expect(farmTileRetirement(snapshot)).toBe(1);
+      expect(computeFurnaceVisual(snapshot).alpha).toBe(0);
       expect(eatingAnimalRetirement(snapshot)).toBe(1);
     }
   });
@@ -33,7 +33,6 @@ describe('settlement props through the TRUE route', () => {
     const turn3 = snapshotAfterTurn(3);
     expect(standing(turn3).sort()).toEqual(
       [
-        'matureFarm',
         'stoneWorkshop',
         'secondHut',
         'practicalCave',
@@ -46,12 +45,12 @@ describe('settlement props through the TRUE route', () => {
       ].sort(),
     );
     const a = alphas(turn3);
-    expect([a.springPond, a.flowingRiverbed, a.basinFilled, a.caveShrine, a.guardianParent, a.guardianChild]).toEqual([0, 0, 0, 0, 0, 0]);
+    expect([a.springPond, a.flowingRiverbed, a.basinFilled, a.caveExterior, a.guardianParent, a.guardianChild]).toEqual([0, 0, 0, 0, 0, 0]);
     expect(a.basinEmpty).toBe(1);
     expect(a.dryRiverbed).toBe(1);
-    // The Turn 2 eating animal and standalone farm tiles have given way.
+    // The Turn 2 eating animal has given way; the finished furnace stands (as a world prop, not a prop slot).
     expect(eatingAnimalRetirement(turn3)).toBe(0);
-    expect(farmTileRetirement(turn3)).toBe(0);
+    expect(computeFurnaceVisual(turn3)).toMatchObject({ alpha: 1, scale: 1 });
   });
 
   it('never shows freshwater, flow or a filled bucket at any moment of Turn 3', () => {
@@ -71,8 +70,10 @@ describe('settlement props through the TRUE route', () => {
     expect(a.basinFilled).toBe(1);
     expect(a.basinEmpty).toBe(0);
     expect(a.springPond).toBe(1);
-    expect(a.caveShrine).toBe(1);
+    // The shrine hill stands and the practical-cave furnishings are retired: no stale cargo overlay.
+    expect(a.caveExterior).toBe(1);
     expect(a.practicalCave).toBe(0);
+    expect(computeFurnaceVisual(ended)).toMatchObject({ alpha: 1, scale: 1 });
     expect([a.guardianParent, a.guardianChild]).toEqual([1, 1]);
     expect([a.livestockParent, a.livestockChild]).toEqual([0, 0]);
     // Four homes: the approved hut, the second hut and two more standing in the village.
@@ -118,7 +119,7 @@ describe('settlement props through the TRUE route', () => {
   });
 
   it('shows glow only during Waves that build or grow something, with bounded strength', () => {
-    const glowWaves: WaveId[] = ['farm-matures', 'workshop-appears', 'human-builds-hut', 'furnace-lights', 'cave-furnished', 'livestock-fenced', 'livestock-breeds', 'spring-appears', 'village-built', 'ecosystem-flourishes', 'shrine-appears', 'epilogue-growth', 'true-judged', 'guardian-transforms'];
+    const glowWaves: WaveId[] = ['farm-matures', 'farm-blossoms', 'workshop-appears','human-builds-hut', 'furnace-lights', 'cave-furnished', 'livestock-fenced', 'livestock-breeds', 'spring-appears', 'village-built', 'ecosystem-flourishes', 'shrine-appears', 'epilogue-growth', 'true-judged', 'guardian-transforms'];
     for (const wave of [...ROCK_WAVES, ...WATER_WAVES]) {
       const effects = computeSettlementEffects(snapshotAt(wave.id, 0.5));
       if (glowWaves.includes(wave.id)) {
@@ -159,7 +160,27 @@ describe('TRUE route layout', () => {
   });
 
   it('keeps every placement on the island and clear of the selection panel', () => {
-    const points = [T.farm, T.workshop, T.secondHut, T.cave, T.pen, T.basin, T.feed, T.spring, T.riverMouth, ...T.homes, ...T.villageResidents];
+    const points = [
+      T.plantPlot,
+      T.workshop,
+      T.furnace,
+      T.furnaceStand,
+      T.hutSite,
+      T.secondHut,
+      T.cave,
+      T.caveHill,
+      T.caveFront,
+      T.caveInside,
+      T.pen,
+      T.penGate,
+      T.basin,
+      T.feed,
+      T.spring,
+      T.riverMouth,
+      ...T.homes,
+      ...T.homeSites,
+      ...T.villageResidents,
+    ];
     for (const point of points) {
       expect(point.y).toBeLessThan(LAYOUT.ui.panelTop - 60);
       expect(point.x).toBeGreaterThan(LAYOUT.island.left);

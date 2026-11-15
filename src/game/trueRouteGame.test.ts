@@ -31,9 +31,10 @@ function playRoute(chunk: number, playbackSpeed = 1): SliceGame {
 function expectedProps(state: RuleState): PropId[] {
   const { stages, flags } = state;
   const present: Record<PropId, boolean> = {
-    'mature-farm': stages.plant >= 3,
     'stone-workshop': stages.stone >= 2,
     'second-hut': state.homes >= 2,
+    // furnace-built raises the fire to Stage 5.
+    furnace: stages.fire >= 5,
     'practical-cave': stages.cave >= 3,
     fence: flags.fenced,
     'feed-area': flags.fenced,
@@ -59,7 +60,8 @@ function expectVisibleToMatch(snapshot: SliceSnapshot): void {
   expect(world.residents).toHaveLength(resolved.population);
   expect(world.isCold).toBe(resolved.flags.isCold);
   expect(world.fireStage).toBe(resolved.stages.fire >= 3 ? 2 : resolved.stages.fire >= 1 ? 1 : 0);
-  expect(world.plantStage).toBe(resolved.stages.plant >= 2 ? 1 : 0);
+  // Every plant Event is presented by a Wave, so the visible plant has reached the resolved Stage.
+  expect(world.plantStage).toBe(resolved.stages.plant);
   expect(world.shelterStage).toBe(resolved.stages.shelter >= 2 ? 2 : 1);
   expect(world.animalStage).toBe(resolved.stages.animal >= 2 ? 2 : 1);
   expect(world.humanStage).toBe(resolved.stages.human >= 2 ? 2 : 1);

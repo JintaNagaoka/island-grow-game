@@ -27,11 +27,11 @@ const SUPPLIED_SHA256: Readonly<Record<string, string>> = {
   'world/turn3/hut-second.png': 'ff92592468ac42414c852ba25136fba76232e31b3509cd92ffed6d78fed3c714',
   'world/turn3/livestock-child.png': '4b8c82b7b216559e8e7537ee142f16566de547d90cbbd09d5c2beb4497390e4d',
   'world/turn3/livestock-parent.png': 'ddb0ad2ebe9899d675dddf3c2f9d429d69039f5ccc7c08b6755ca685ad54453b',
-  'world/turn3/mature-farm.png': '44ddc32d3b74517e11cca4f53dc14408b595d17d651b4cbe6d1342bfd580dd84',
   'world/turn3/stone-workshop.png': '6c5102156c5ddbaa8c6af814daf39c467699d35ce10b7a547640dcd41ee6743a',
   'world/turn3/water-trough-empty-candidate.png': '354f02af911b0451020fc735886ee438ca9e8a7ef631c8b87a92dcb2d038b966',
   'world/turn3/water-trough.png': '9c8bf0d9c2dec1c74f92e7742f04e312680f73232a1a664a8c3f7edc10093783',
-  'world/turn4/cave-shrine-candidate.png': '487ac80f5362f7f6602839b99d6aa71bf3519d77fdd36a481b33603106bf36d1',
+  // The supplied shrine cave exterior (true-route-review-fix-v2 package, asset-manifest.json).
+  'world/turn4/cave-shrine-exterior.png': '46bd9980a793a6376dbe8f44f1fb9ec9a9fd991d48ce40c571f35af8f32d3511',
   'world/turn4/flowing-riverbed-candidate.png': '2fcfb954d415616b7984b3890a5317b2f294f1a3ecdf297354b7f2a6e7ba24ea',
   'world/turn4/spring-pond-candidate.png': '72c115c8eb4e4426adafad46299ab295d74e7e9e8cbdd170006e6d0d2274739d',
 };
@@ -158,13 +158,36 @@ describe('prop PNGs', () => {
   });
 });
 
-describe('baked human action candidates are not runtime art', () => {
-  const candidates = readdirSync(new URL('../../art-source/true-route/human-action-candidates/', import.meta.url));
+describe('human action candidates ship as composite work sprites, unchanged', () => {
+  const sourceDir = new URL('../../art-source/true-route/human-action-candidates/', import.meta.url);
+  const candidates = readdirSync(sourceDir).filter((name) => name.endsWith('.png'));
 
-  it('stay in art-source: the human, tool and carried object are baked into one PNG, so none is registered or shipped', () => {
-    expect(candidates.filter((name) => name.endsWith('.png'))).toHaveLength(10);
-    expect(() => readdirSync(new URL('human/actions/', ASSETS))).toThrow();
+  it('ship byte-for-byte what art-source holds: the same ten PNGs, none edited or derived', () => {
+    expect(candidates).toHaveLength(10);
+    expect(readdirSync(new URL('human/actions/', ASSETS)).sort()).toEqual([...candidates].sort());
+    for (const name of candidates) {
+      const source = createHash('sha256').update(readFileSync(new URL(name, sourceDir))).digest('hex');
+      const shipped = createHash('sha256').update(read(`human/actions/${name}`)).digest('hex');
+      expect(shipped, name).toBe(source);
+    }
+  });
+
+  it('keeps the two build frames exactly as supplied in the review package', () => {
+    const supplied: Record<string, string> = {
+      'build-1.png': 'c2aefa62b7931d32e7de1b01c7e6903a12fbcc2a9278fdd39299ba4752054d68',
+      'build-2.png': '60e978558f809d35cbc53a8f6db1446dbcc3b73e459bf083dc9ad77d2fc5cf36',
+    };
+    for (const [name, hash] of Object.entries(supplied)) {
+      expect(createHash('sha256').update(read(`human/actions/${name}`)).digest('hex'), name).toBe(hash);
+    }
+  });
+});
+
+describe('superseded candidates', () => {
+  it('are kept out of the runtime tree, in art-source, so nothing stale can be drawn or shipped', () => {
+    const superseded = readdirSync(new URL('../../art-source/true-route/superseded/', import.meta.url)).sort();
+    expect(superseded).toEqual(['cave-shrine-candidate.png', 'mature-farm.png']);
     const source = readFileSync(new URL('./trueRouteAssets.ts', import.meta.url), 'utf8').replace(/\/\/.*$/gm, '');
-    for (const forbidden of ['ACTION_', 'human/actions', 'gather-1', 'water-carry-a']) expect(source.includes(forbidden), forbidden).toBe(false);
+    for (const stale of ['mature-farm', 'cave-shrine-candidate', 'matureFarm', 'caveShrine']) expect(source.includes(stale), stale).toBe(false);
   });
 });

@@ -81,7 +81,7 @@ TRUE の条件は、厳密な順序 🔥→🌱→🪨→💧、SECRET 不成立
 
 レビュー用の補助（開発サーバーでのみ有効。本番ビルドでは無効）: `/?playbackSpeed=4` で全体を 4 倍速（将来のグローバル再生速度と同じ論理時間の拡縮）で再生、`/?paused` でフレームループによる時間の進行を止め、`window.__islandSlice.advance(ms)` / `.selectElement('rock')` で論理時間を厳密に進めて確認できます。
 
-**素材はすべて「候補（provisional）」で、人間の視覚承認を受けていません。** 供給パッケージ `true-route-materials-v3` から、実際に使う 16 枚だけを byte 単位でそのまま取り込みました（`public/assets/world/turn3/`・`turn4/`。SHA-256 は `src/presentation/trueRouteAssets.test.ts` で固定し、供給元のマニフェストは `art-source/true-route/TRUE_ASSET_MANIFEST.md`）。取り込まなかったもの: 人の作業フレーム（gather / build / carry / dig / water-carry の 10 枚と 2 フレームの `animation.json`）は、人・道具・運ぶ物が 1 枚の PNG に焼き込まれており、Notion の「人／対象物／エフェクトを別レイヤーにする」要件を満たせないため、実行時には登録・配信せず `art-source/true-route/human-action-candidates/` に置いたままです。実行時の 3 人目以降は、承認済みの人スプライト（立ち絵と 4 方向の歩行）に、**別の Graphics オブジェクト**として描く道具・運ぶ物（石・石ブロック・スコップ・木槌・バケツ）と、エフェクト（砂ぼこり・破片・土・水しぶき）を重ねます（`src/presentation/crew.ts` のレイヤー記録と `crewDraw.ts` のコード描画。いずれも仮の形で、最終アートではありません）。プロトタイプの `trueRoute.ts` と `trueRoute.test.ts` も取り込んでいません（参考資料であり、実行時の権威にはしません）。
+**素材はすべて「候補（provisional）」で、人間の視覚承認を受けていません。** 供給パッケージ `true-route-materials-v3` から、実際に使う 16 枚だけを byte 単位でそのまま取り込みました（のち 2 枚は下記のとおり差し替え）（`public/assets/world/turn3/`・`turn4/`。SHA-256 は `src/presentation/trueRouteAssets.test.ts` で固定し、供給元のマニフェストは `art-source/true-route/TRUE_ASSET_MANIFEST.md`）。その後の TRUE ルート修正（Issue #26、供給パッケージ `true-route-review-fix-v2`）で次を**候補のまま**加えました: 植物の成長 5 段階（`public/assets/world/plants/`）と祭壇化した洞窟の外観（`public/assets/world/turn4/cave-shrine-exterior.png`）は、供給 PNG を byte 単位でそのまま取り込み、SHA-256 を `plantGrowth.test.ts` / `trueRouteAssets.test.ts` で固定しています。旧 `mature-farm.png` と `cave-shrine-candidate.png` は実行時から外し、`art-source/true-route/superseded/` に移しました（二重表示・古い荷物だけの表示を防ぐため）。人の作業フレーム（gather / build / carry / dig / water-carry の 10 枚。`art-source/true-route/human-action-candidates/` の原本を `public/assets/human/actions/` に**無加工で複製**）は、人と道具・運ぶ物が 1 枚の PNG に焼き込まれた「合成作業スプライト」として、実行時に使います（`src/presentation/humanActions.ts`）。待機ポーズに道具だけを動かす表現ではなく、腕・体の姿勢が変わる既存フレームをそのまま使うためです。影響範囲: 3 人目以降と、Turn 3 以降の 1・2 人目の作業・運搬・水運びだけで、承認済みの歩行と待機・Turn 1/2 の演出は変えません。建物・世界の状態・エフェクト（砂ぼこり・破片・土・水しぶき）は別レコードのままで、エフェクトだけ Graphics で重ねます（`crew.ts` のレイヤー記録と `crewDraw.ts`）。1 枚ごとに足元の接地点（両足の中点と最下段）と頭の大きさを測って登録し、コマが切り替わっても足元と大きさが跳ねないようにしています。石組みの炉の完成形は、リポジトリにも供給パッケージにも素材が無いため、**仮のコード描画**（`furnaceDraw.ts`）です。これらはいずれも最終アートではありません。プロトタイプの `trueRoute.ts` と `trueRoute.test.ts` も取り込んでいません（参考資料であり、実行時の権威にはしません）。
 
 - 住居: 承認済みの小屋 + 候補の `hut-second.png` の 3 インスタンス（3・4 軒目は 0.8 倍）。
 - 守り神: `guardian-parent` / `guardian-child` は家畜の親子と同じスケール・同じ接地点で入れ替わります（淡い光の縁が見えるため、実機での縁の色を要確認）。
@@ -222,9 +222,9 @@ sips -s format png asset-source/initial-turn1/campfire_frame_b_1254.jpg --out as
 
 農作業 3 枚のスケールは 0.22 です。この PNG の小人は 512px キャンバス上で承認済みの idle / 歩行の小人よりも小さく描かれており（頭の幅が約 97 px に対し約 200〜220 px）、0.1 のままだと画面上で約半分の大きさになります。0.22 で頭が約 22 デザイン px となり、承認済みの小人（`HUMAN_SPRITE_SCALE` 0.1。変更していません）と同じ見かけになります（頭の幅を輪郭の弦から推定するテストで 10% 以内を確認）。畑そのものは複合画像の一部なので、リファレンスほど大きくは描けません。
 
-### 単独の四株の畑（`public/assets/world/turn2/farm-plot-four-plants.png`）
+### 単独の四株の畑（`public/assets/world/turn2/farm-plot-four-plants.png`、履歴素材）
 
-承認済みの四株の畑 JPEG（SHA-256 `0e070b2341d1406e35cdfa2e07d4f3c9137be0a08ec5a3059ec2573af60cbd02`、1254x1254、RGB baseline、不透明な白背景）を `art-source/turn2/farm-plot-four-plants-source.jpg` に無加工で保持しています。ランタイムでは、小屋と同じ決定的な方法で、外周につながる近白の背景だけを透明化した 8-bit RGBA PNG（448x295）を使います。畑の絵は描き直し・再生成・色の変更をしていません。旧 `farm_plot_single.png`（一株の部品）は削除しました。
+承認済みの四株の畑 JPEG（SHA-256 `0e070b2341d1406e35cdfa2e07d4f3c9137be0a08ec5a3059ec2573af60cbd02`、1254x1254、RGB baseline、不透明な白背景）を `art-source/turn2/farm-plot-four-plants-source.jpg` に無加工で保持しています。小屋と同じ決定的な方法で、外周につながる近白の背景だけを透明化した 8-bit RGBA PNG（448x295）も保持します。Issue #26 以降、永続植物表示は供給された 5 段階 PNG に置き換わったため、この四株 PNG と下記の旧グリッドはランタイムでは描画しません。Turn 2 の農作業中だけは既存の人＋畑の複合画像を使い、`farm-expands` 中に独立した小人と新植物へ引き継ぎます。
 
 1. JPEG を可逆な PNG に変換します（macOS: `sips -s format png art-source/turn2/farm-plot-four-plants-source.jpg --out art-source/turn2/farm-plot-four-plants-source-decoded.png`）。この PNG（SHA-256 `466d01a472ebf998fe7e270bddc217fba376e6bbda2717294316587e5ab1f464`）もリポジトリに置き、テストで照合します。
 2. `node scripts/deriveFarmPlotAsset.mjs art-source/turn2/farm-plot-four-plants-source-decoded.png public/assets/world/turn2/farm-plot-four-plants.png`
@@ -232,11 +232,11 @@ sips -s format png asset-source/initial-turn1/campfire_frame_b_1254.jpg --out as
 
 出力はピクセル単位で決定的です（ランタイム PNG のデコード後ピクセルの SHA-256 `4dbf044d775f9d2b55e5217c63e3aeb73c5dc4180cd1afc24a353e5524d0dcc9` をテストで固定し、スクリプトで再導出して一致を確認します。穴・白いにじみがないことも検査します）。
 
-植物の大きさは、人間の農作業フレームに描かれている植物と見かけが同じになるようにしています。株ごとの葉＋濃緑の輪郭の面積は、この絵で約 10,200 px²、`human_farm_harvest1/2` の畑の植物（4 株で約 5,800 px²）で約 1,450 px² です（0.22 で描画）。画面上で同じ大きさにするには 0.22 x sqrt(1450 / 10200) = 0.083 で、0.08 を使います（人間・複合画像の 0.22 は変更していません。テストで画面上の株の面積が 25% 以内で一致することを確認）。
+旧配置では、植物の大きさを人間の農作業フレームに描かれている植物へ合わせ、単独 PNG を 0.08 倍で描画していました。この値は履歴・再導出用メタデータに残りますが、Issue #26 の 5 段階植物の表示スケールには使いません。
 
-並べ方: 複合画像の畑（4 株）を最初のマスとする 2 x 2 の等角格子で、残りの 3 マスに四株の畑を 1 枚ずつ置きます（`FARM_GRID`: 下右方向 2 x 上右方向 2。複合画像を除く**ちょうど 3 枚**。合計 16 株で、リファレンスの約 12 株に近い）。隣り合う畑の間隔は接する距離（`FARM_TILE_STEP_PX` = (226, 124) px）の 1.05 倍（`FARM_GRID.spacing`）で、土の縁がほぼ接し、4 つの畑が 1 つの農地に見えます（以前の 2 倍では 4 つの孤立した畑に見えました）。株の大きさ（0.08）は変えていません。位置は `layout.ts` の `farmPlotTiles`（複合画像の畑の中心から計算。追加順は複合画像に近い順）。
+旧配置は、複合画像の畑を最初のマスとする 2 x 2 の等角格子でした。現在は廃止され、植物は `LAYOUT.true.plantPlot` の単一接地点で Stage 1→5 を切り替えます。第二の植物区画や旧タイルを同時表示しません。
 
-農地全体（小人・複合画像・3 枚）の基準点は島画像のピクセルで (334, 674)（デザイン座標で約 (270, 474)）です。以前の (225, 724)（約 (193, 508)）より約 34 デザイン px 上、約 77 デザイン px 内側（右）で、外側の左崖から離れ、リファレンスの位置に近づきました。島の下地に描き込まれた小さな岩（約 (200〜231, 443〜461)）は、隠さず・動かさず・覆わずに、そのすぐ右下に農地を置いて避けています（小人と農地は岩から数 px 以上離れ、歩行経路も岩に触れません）。農地は中央の将来用スペースの上側（y < 492）にあり、右端は砂の道の縁に近くなります。
+Turn 2 の農作業複合画像の基準点は島画像のピクセルで (334, 674)（デザイン座標で約 (270, 474)）のままです。永続植物は、その旧畑と重ならない近接した単一接地点 `LAYOUT.true.plantPlot` へ切り替わり、独立した resident-2 が作業を継続します。
 
 ### Visual Reference（Turn 2 完了状態の参照画像）
 
@@ -270,7 +270,7 @@ sips -s format png asset-source/initial-turn1/campfire_frame_b_1254.jpg --out as
   - `residents.ts`: `WorldState.residents` と論理クロックから、各小人（Turn 2 の分裂演出を含む）の見た目を計算する純粋関数（Phaser 非依存）
   - `trueRouteAssets.ts`: Turn 3 / Turn 4 / Epilogue の候補 PNG（小道具 16 点と、2 フレームずつの作業 5 種）のメタデータ（すべて provisional）
   - `settlement.ts`: スナップショットから Turn 3 以降の小道具（川床・泉・柵・家・祠・守り神など）と光の見た目を計算する純粋関数（Phaser 非依存）
-  - `crew.ts`: 3〜6 人目の位置・移動・作業（before → work → after）・登場演出を、人（承認済みスプライト）・対象物・エフェクトの別レイヤー記録として計算する純粋関数（Phaser 非依存）。`crewDraw.ts`: 対象物とエフェクトの仮のコード描画
+  - `crew.ts`: 3〜6 人目と、Turn 3 以降の 1・2 人目の自律的な作業（Wave ごとのルーティン、洞窟への入退場、6 人になってからの持ち場）を、移動距離と承認済み歩行速度から論理時間で計算する純粋関数（Phaser 非依存）。`humanActions.ts`: 既存の作業フレーム（合成作業スプライト）の接地点・頭の大きさ・接触点。`plantGrowth.ts`: 植物 5 段階の表示。`furnaceDraw.ts`: 炉の仮のコード描画。`crewDraw.ts`: エフェクトの仮のコード描画
   - `lifeAnimation.ts`: スナップショットから Turn 2 の畑・小屋／調理の火／動物のレベルアップの見た目を計算する純粋関数（Phaser 非依存。共通のレベルアップ演出 `levelUpBlend` は `animation.ts`）
 - `scripts/`: ランタイム世界 PNG を元素材から再生成する Node スクリプト（`deriveWorldAssets.mjs`、小屋用の `deriveHutAsset.mjs`、畑用の `deriveFarmPlotAsset.mjs`）
 - `art-source/true-route/`: 供給された TRUE ルート候補素材のマニフェスト（出典の記録。素材は未承認）

@@ -33,6 +33,17 @@ export function snapshotAt(waveId: WaveId, progress: number): SliceSnapshot {
   });
 }
 
+// The snapshot `elapsedMs` (logical) into `waveId`, which must be shorter than the Wave.
+export function snapshotAtMs(waveId: WaveId, elapsedMs: number): SliceSnapshot {
+  const game = new SliceGame();
+  return step(game, (snapshot) => {
+    const wave = snapshot.activeWave;
+    if (wave?.id !== waveId) return null;
+    game.advance(Math.max(0, elapsedMs - wave.elapsedMs));
+    return game.snapshot();
+  });
+}
+
 // The snapshot at the instant `waveId` has completed (the next Wave is at progress 0).
 export function snapshotAfter(waveId: WaveId): SliceSnapshot {
   const game = new SliceGame();

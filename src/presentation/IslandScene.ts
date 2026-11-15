@@ -27,24 +27,26 @@ import { LAYOUT } from './layout';
 import {
   computeAnimalVisual,
   computeCookingFireVisual,
-  computeFarmTiles,
   computeFarmVisual,
   computeShelterVisual,
 } from './lifeAnimation';
-import { drawCrewEffect, drawCrewObject } from './crewDraw';
+import { drawCrewEffect } from './crewDraw';
+import { drawFurnace } from './furnaceDraw';
+import { HUMAN_ACTION_ASSET_LIST, HUMAN_ACTION_DIR } from './humanActions';
+import { computePlantVisual } from './plantGrowth';
 import { computeResidentVisuals, computeSplitEffect, type ResidentVisual } from './residents';
 import {
   SETTLEMENT_SLOTS,
+  computeFurnaceVisual,
   computeSettlementEffects,
   computeSettlementProps,
   computeVillageHomes,
   type EffectVisual,
 } from './settlement';
-import { TRUE_PROPS, TRUE_PROP_LIST } from './trueRouteAssets';
+import { PLANT_FRAME_LIST, PLANT_STAGE_FRAMES, TRUE_PROPS, TRUE_PROP_LIST } from './trueRouteAssets';
 import {
   ANIMAL_EAT_FRAMES,
   COOK_STEAM_FRAMES,
-  FARM_PLOT_TILE,
   FARM_WATER_FRAME,
   HUT_ASSET,
   TURN2_ASSET_LIST,
@@ -93,9 +95,8 @@ interface ResidentView {
   readonly sprite: Phaser.GameObjects.Sprite;
   readonly shadow: Phaser.GameObjects.Graphics;
   readonly cold: Phaser.GameObjects.Graphics;
-  // The target object (tool or load) and the effect are their own game objects, apart
-  // from the human sprite, so a pose never carries a baked-in tool.
-  readonly object: Phaser.GameObjects.Graphics;
+  // The work effect (dust, chips, dirt, splash) is its own game object, apart from the human
+  // sprite. (A composite work frame bakes the tool or load into the sprite; see humanActions.ts.)
   readonly effect: Phaser.GameObjects.Graphics;
 }
 
@@ -113,8 +114,13 @@ export class IslandScene extends Phaser.Scene {
   private shelterGlow!: Phaser.GameObjects.Graphics;
   private shelterSparkles!: Phaser.GameObjects.Graphics;
   private farm!: Phaser.GameObjects.Image;
-  // The standalone plot tiles of the expanded farm, in LAYOUT.farmPlotTiles order.
-  private farmTiles: Phaser.GameObjects.Image[] = [];
+  // The plant plot: one Image per growth stage (index = stage - 1), all on one ground point,
+  // each shown or hidden from computePlantVisual(); none owns state.
+  private plantImages: Phaser.GameObjects.Image[] = [];
+  private plantGlow!: Phaser.GameObjects.Graphics;
+  private plantSparkles!: Phaser.GameObjects.Graphics;
+  // The finished stone furnace (provisional code-native drawing; see furnaceDraw.ts).
+  private furnace!: Phaser.GameObjects.Graphics;
   // The campfire levelled up: replaces fireSprite at the same ground point.
   private cookingFire!: Phaser.GameObjects.Image;
   private cookingGlow!: Phaser.GameObjects.Graphics;
@@ -163,6 +169,12 @@ export class IslandScene extends Phaser.Scene {
     for (const asset of HUMAN_WALK_ASSET_LIST) {
       this.load.image(asset.textureKey, `/assets/human/${asset.filename}`);
     }
+    for (const asset of HUMAN_ACTION_ASSET_LIST) {
+      this.load.image(asset.textureKey, `${HUMAN_ACTION_DIR}${asset.filename}`);
+    }
+    for (const asset of PLANT_FRAME_LIST) {
+      this.load.image(asset.textureKey, `${asset.dir}${asset.filename}`);
+    }
   }
 
   create(): void {
@@ -199,10 +211,11 @@ export class IslandScene extends Phaser.Scene {
     this.renderShelter(snapshot);
     this.renderHuman(snapshot);
     this.renderFarm(snapshot);
-    this.renderFarmTiles(snapshot);
+    this.renderPlants(snapshot);
     this.renderCookingFire(snapshot);
     this.renderFire(snapshot);
     this.renderSettlement(snapshot);
+    this.renderFurnace(snapshot);
     this.renderButtons(snapshot);
     this.renderEnd(snapshot);
   }
@@ -352,7 +365,7 @@ export class IslandScene extends Phaser.Scene {
     );
   }
 
-  // The composite farm-work art (human + sprout plot) stands on the plot's ground
+  // The composite farm-work art (human + old four-plant plot) stands on the plot's ground
   // point; its frame comes from the logical clock, never from animation callbacks.
   private renderFarm(snapshot: SliceSnapshot): void {
     const farm = computeFarmVisual(snapshot);
@@ -368,15 +381,34 @@ export class IslandScene extends Phaser.Scene {
       .setDepth(LAYOUT.plot.y + 2);
   }
 
-  // Each tile grows in (scale and alpha) from its own ground point, from the logical
-  // clock alone; once the farm has expanded they all simply stay.
-  private renderFarmTiles(snapshot: SliceSnapshot): void {
-    computeFarmTiles(snapshot).forEach((tile, index) => {
-      this.farmTiles[index]
-        .setVisible(tile.alpha > 0)
-        .setAlpha(tile.alpha)
-        .setScale(FARM_PLOT_TILE.baseScale * tile.scale);
+  // The plant plot: the stage images cross-fade on one ground point from the revealed plant
+  // stage and the Wave's logical time (plantGrowth.ts). Each frame's own origin puts its plot
+  // base on that point, so a stage change never moves the base.
+  private renderPlants(snapshot: SliceSnapshot): void {
+    const visual = computePlantVisual(snapshot);
+    visual.stages.forEach((stage, index) => {
+      const frame = PLANT_STAGE_FRAMES[stage.stage];
+      this.plantImages[index]
+        .setVisible(stage.alpha > 0)
+        .setAlpha(stage.alpha)
+        .setScale(frame.baseScale * stage.scale);
     });
+    this.drawLevelUp(
+      this.plantGlow,
+      this.plantSparkles,
+      LAYOUT.true.plantPlot,
+      80,
+      visual.glow,
+      visual.sparkle,
+    );
+  }
+
+  // The finished furnace: shown from the revealed 'furnace' prop (and while its Wave builds
+  // it); the flame is drawn from the logical clock, so it keeps burning to the END.
+  private renderFurnace(snapshot: SliceSnapshot): void {
+    const visual = computeFurnaceVisual(snapshot);
+    this.furnace.setVisible(visual.alpha > 0).setAlpha(visual.alpha).setScale(visual.scale);
+    if (visual.alpha > 0) drawFurnace(this.furnace, snapshot.clockMs);
   }
 
   // The campfire levels up into the cooking fire at the campfire's ground point.
@@ -430,7 +462,7 @@ export class IslandScene extends Phaser.Scene {
       const sprite = this.add
         .sprite(LAYOUT.humanStart.x, LAYOUT.humanStart.y, initial.textureKey)
         .setScale(HUMAN_SPRITE_SCALE);
-      view = { sprite, shadow, cold: this.add.graphics(), object: this.add.graphics(), effect: this.add.graphics() };
+      view = { sprite, shadow, cold: this.add.graphics(), effect: this.add.graphics() };
       this.residentViews.set(id, view);
     }
     return view;
@@ -444,7 +476,10 @@ export class IslandScene extends Phaser.Scene {
     view.sprite.setPosition(x, pose.y - pose.lift);
     view.sprite.setOrigin(pose.originX, pose.originY);
     this.applyHumanFrame(view.sprite, pose);
-    view.sprite.setScale(pose.facing * HUMAN_SPRITE_SCALE * visual.scale, HUMAN_SPRITE_SCALE * visual.scale);
+    // A composite work frame carries its own size multiplier (humanActions.ts), so every frame
+    // shows the approved head size; the walk and idle poses leave it at 1.
+    const size = HUMAN_SPRITE_SCALE * visual.scale * (pose.sizeMul ?? 1);
+    view.sprite.setScale(pose.facing * size, size);
     view.sprite.setDepth(pose.y + 2);
     this.renderHumanCold(view.cold, pose);
     this.renderCrewLayers(view, visual, pose.y);
@@ -456,16 +491,11 @@ export class IslandScene extends Phaser.Scene {
     view.shadow.setDepth(pose.y);
   }
 
-  // The object and effect layers of a working resident, drawn as small provisional
-  // shapes in design pixels. Nothing here selects a pose or changes game state.
+  // The effect layer of a working resident, drawn as small provisional shapes in design
+  // pixels. Nothing here selects a pose or changes game state.
   private renderCrewLayers(view: ResidentView, visual: ResidentVisual, groundY: number): void {
-    const { object, effect } = visual.layers ?? { object: null, effect: null };
-    view.object.clear().setVisible(object !== null && visual.alpha > 0);
+    const effect = visual.layers?.effect ?? null;
     view.effect.clear().setVisible(effect !== null && visual.alpha > 0);
-    if (object !== null) {
-      drawCrewObject(view.object, object);
-      view.object.setDepth(groundY + 2.5);
-    }
     if (effect !== null) {
       drawCrewEffect(view.effect, effect);
       view.effect.setDepth(groundY + 3.5);
@@ -678,9 +708,26 @@ export class IslandScene extends Phaser.Scene {
     this.animalEat = this.addGroundSprite(ANIMAL_EAT_FRAMES[0], LAYOUT.animal.x, LAYOUT.animal.y).setVisible(false);
     this.animalSparkles = this.add.graphics().setDepth(LAYOUT.animal.y + 1.5);
     this.farm = this.addGroundSprite(FARM_WATER_FRAME, LAYOUT.plot.x, LAYOUT.plot.y).setVisible(false);
-    this.farmTiles = LAYOUT.farmPlotTiles.map((ground) =>
-      this.addGroundSprite(FARM_PLOT_TILE, ground.x, ground.y).setVisible(false),
-    );
+    // The plant plot: one image per growth stage on the one ground contact; the per-frame
+    // origin and scale (trueRouteAssets.ts) keep the plot base from moving between stages.
+    const plot = LAYOUT.true.plantPlot;
+    this.plantGlow = this.add.graphics().setDepth(plot.y - 0.4);
+    this.plantImages = PLANT_FRAME_LIST.map((frame) => {
+      const origin = groundOrigin(frame);
+      return this.add
+        .image(plot.x, plot.y, frame.textureKey)
+        .setOrigin(origin.x, origin.y)
+        .setScale(frame.baseScale)
+        .setDepth(plot.y)
+        .setVisible(false);
+    });
+    this.plantSparkles = this.add.graphics().setDepth(plot.y + 1.5);
+    // The furnace stands beside the workshop on its own ground point (not the cooking fire's).
+    this.furnace = this.add
+      .graphics()
+      .setPosition(LAYOUT.true.furnace.x, LAYOUT.true.furnace.y)
+      .setDepth(LAYOUT.true.furnace.y)
+      .setVisible(false);
     // The cooking fire shares the campfire's ground point and is drawn just over it.
     this.cookingGlow = this.add.graphics().setDepth(LAYOUT.cookingFire.y - 0.4);
     this.cookingFire = this.addGroundSprite(COOK_STEAM_FRAMES[0], LAYOUT.cookingFire.x, LAYOUT.cookingFire.y)

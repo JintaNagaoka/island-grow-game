@@ -1,26 +1,32 @@
 import type { SliceSnapshot } from '../game/sliceGame';
 import type { WaveId } from '../game/waves';
 import {
+  FIRST_RESIDENT_ID,
+  SECOND_RESIDENT_ID,
   THIRD_RESIDENT_ID,
   VILLAGE_RESIDENT_IDS,
   type Resident,
   type ResidentPlace,
 } from '../game/worldState';
-import { clamp01, easeOutBack, stillPose, walkingPose, type HumanPose } from './animation';
-import { selectWalkDirection } from './humanWalk';
+import { clamp01, easeOutBack, smoothstep, stillPose, walkingPose, type HumanPose } from './animation';
+import { actionFrameIndex, actionPose, contactOffset, ACTION_FRAME_MS, type ActionId } from './humanActions';
+import { HUMAN_WALK_SPEED_PX_PER_MS, selectWalkDirection, walkToward } from './humanWalk';
 import { LAYOUT, type Point } from './layout';
 import type { ResidentVisual } from './residents';
 
-// The residents who join the island in Turn 3 and Turn 4 (ids 3 to 6): where each
-// stands, how the third resident works and walks between Waves, and how new
-// residents arrive. Pure functions of the snapshot and the logical clock; nothing
-// here creates, removes or moves a resident in game state.
+// Residents beyond the Turn 1/2 founders, and the autonomous work of every resident from
+// Turn 3 on: who walks where, what they do there, and when they are out of sight.
+// Pure functions of the snapshot and the logical clock; nothing here creates, removes or
+// moves a resident in game state. A resident's `place` (WorldState) is where a Wave
+// leaves them, and the next Wave's routine starts there, so nobody jumps at a Wave
+// boundary. Walking uses the approved four-direction walk at its fixed speed, so a
+// routine's length comes from the layout's distances and not from a tuned fraction.
 
 const T = LAYOUT.true;
 const TAU = Math.PI * 2;
 
-// Where a resident rests for each named place. Presentation owns the pixels;
-// the game only knows the place.
+// Where a resident rests for each named place. Presentation owns the pixels; the game
+// only knows the place. The village has three spots, one per added resident (residentSpot).
 export const PLACE_SPOTS: Readonly<Record<ResidentPlace, Point>> = {
   start: LAYOUT.humanStart,
   fire: LAYOUT.humanWarm,
@@ -30,38 +36,34 @@ export const PLACE_SPOTS: Readonly<Record<ResidentPlace, Point>> = {
   riverbed: T.digSite,
   pen: T.penGate,
   village: T.villageResidents[0],
+  furnace: T.furnaceStand,
+  cave: T.caveFront,
+  'home-a': T.homeSites[0],
+  'home-b': T.homeSites[1],
 };
 
-export type SpotId = 'workshop' | 'hut-site' | 'pen' | 'riverbed' | 'spring';
-const SPOTS: Readonly<Record<SpotId, Point>> = {
-  workshop: T.workshopStand,
-  'hut-site': T.hutSite,
-  pen: T.penGate,
-  riverbed: T.digSite,
-  spring: T.springBank,
-};
-
-// --- Layers. A working resident is three separate things, each its own record that
-// the scene draws as its own game object: the HUMAN (an approved sprite pose, the same
-// art every other resident uses), the TARGET OBJECT (a tool or carried load) and the
-// EFFECT (dust, chips, dirt, splash). No baked "human holding a tool" image exists at
-// runtime. Object and effect shapes are provisional code-native drawings in
-// IslandScene; replacing them with art is a Human Review decision.
-export type ObjectKind = 'stone' | 'stone-block' | 'spade' | 'mallet' | 'bucket';
-export type EffectKind = 'dust' | 'chips' | 'dirt' | 'splash';
-
-export interface ObjectLayer {
-  readonly kind: ObjectKind;
-  // Design pixels, absolute. Where the object's grip or resting point is.
-  readonly x: number;
-  readonly y: number;
-  // Radians, already mirrored for the resident's facing.
-  readonly angle: number;
-  // The bucket only: true while it holds water.
-  readonly filled: boolean;
-  // Which of the two loop frames this is (0 for an object that does not alternate).
-  readonly frame: 0 | 1;
+export function residentSpot(place: ResidentPlace, id: string): Point {
+  if (place === 'village') {
+    const index = VILLAGE_RESIDENT_IDS.indexOf(id as (typeof VILLAGE_RESIDENT_IDS)[number]);
+    return T.villageResidents[Math.max(0, index)];
+  }
+  return PLACE_SPOTS[place];
 }
+
+// Points a routine can walk to: every resting place, plus the ones only visited in passing.
+export type SpotId = ResidentPlace | 'spring' | 'cave-inside' | 'stone-pile';
+const SPOTS: Readonly<Record<SpotId, Point>> = {
+  ...PLACE_SPOTS,
+  spring: T.springBank,
+  'cave-inside': T.caveInside,
+  'stone-pile': T.stonePile,
+};
+
+// --- Layers. A working resident is the HUMAN (a composite work sprite from humanActions.ts,
+// or an approved walk/idle pose), the BUILDING / WORLD it works on (settlement.ts, never in
+// the sprite), and the EFFECT (dust, chips, dirt, splash), which is its own record drawn as
+// its own game object. Effect shapes are provisional code-native drawings in IslandScene.
+export type EffectKind = 'dust' | 'chips' | 'dirt' | 'splash';
 
 export interface EffectLayer {
   readonly kind: EffectKind;
@@ -72,71 +74,130 @@ export interface EffectLayer {
 }
 
 export interface CrewLayers {
-  readonly object: ObjectLayer | null;
   readonly effect: EffectLayer | null;
 }
 
-// Logical milliseconds each frame of a two-frame work loop is shown; read from the
-// logical clock, so a global playback speed scales it.
-export const CREW_FRAME_MS = 300;
-// Hand and ground offsets from the resident's ground point, in design pixels, for a
-// right-facing resident (mirrored by facing). The approved human is about 51 px tall.
-const HAND = { x: 9, y: -13 } as const;
-const FOOT_REACH = { x: 11, y: -1 } as const;
-
-// What a resident does in place. `workLayers` poses the object and the effect each
-// action raises for the two loop frames.
 export const WORK_ACTIONS = ['gather', 'build', 'dig', 'fill', 'pour'] as const;
 export type WorkId = (typeof WORK_ACTIONS)[number];
-// What a resident carries while walking.
+// What a resident carries while walking (the composite carry / water-carry frames).
 export const LOADS = ['stone-block', 'bucket'] as const;
 export type LoadId = (typeof LOADS)[number];
 
-// One step of a Wave's routine, ending at `until` (a fraction of the Wave's logical
-// progress). Before -> work -> after: the resident stands, works, then stands again.
-type StepAction =
-  | { readonly kind: 'idle' }
-  // The approved four-direction walk to a spot.
-  | { readonly kind: 'walk'; readonly to: SpotId }
-  // A two-frame work loop where the resident stands.
-  | { readonly kind: 'work'; readonly action: WorkId; readonly facing?: -1 | 1 }
-  // The approved walk to a spot, with a load in the hands.
-  | { readonly kind: 'carry'; readonly load: LoadId; readonly to: SpotId };
-interface Step {
-  readonly until: number;
-  readonly step: StepAction;
-}
-
-const idle = (until: number): Step => ({ until, step: { kind: 'idle' } });
-const walk = (until: number, to: SpotId): Step => ({ until, step: { kind: 'walk', to } });
-const work = (until: number, action: WorkId, facing?: -1 | 1): Step => ({ until, step: { kind: 'work', action, facing } });
-const carry = (until: number, load: LoadId, to: SpotId): Step => ({ until, step: { kind: 'carry', load, to } });
-
-// The third resident's routine in each Wave that has one. A Wave without a routine
-// leaves the resident standing at their place.
-export const CREW_ROUTINES: Partial<Record<WaveId, readonly Step[]>> = {
-  'human-walks-to-workshop': [walk(0.6, 'workshop'), idle(1)],
-  'human-gathers-stone': [idle(0.12), work(0.88, 'gather'), idle(1)],
-  'human-carries-stone': [idle(0.1), carry(0.74, 'stone-block', 'hut-site'), idle(1)],
-  'human-builds-hut': [idle(0.1), work(0.9, 'build', -1), idle(1)],
-  'livestock-fenced': [walk(0.48, 'pen'), work(0.92, 'build'), idle(1)],
-  'riverbed-dug': [walk(0.5, 'riverbed'), work(0.94, 'dig'), idle(1)],
-  'water-carried': [
-    walk(0.24, 'spring'),
-    // Fill the bucket at the pond, carry it to the basin, pour, then stand.
-    work(0.32, 'fill'),
-    carry(0.84, 'bucket', 'pen'),
-    work(0.94, 'pour'),
-    idle(1),
-  ],
+const WORK_ART: Readonly<Record<WorkId, { readonly action: ActionId; readonly alternates: boolean }>> = {
+  gather: { action: 'gather', alternates: true },
+  build: { action: 'build', alternates: true },
+  dig: { action: 'dig', alternates: true },
+  // The bucket is full in the art: filling shows the splash at the pond, pouring the splash at
+  // the basin, with the bucket held steady.
+  fill: { action: 'water-carry', alternates: false },
+  pour: { action: 'water-carry', alternates: false },
 };
 
-const lerp = (a: Point, b: Point, t: number): Point => ({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t });
+type Step =
+  // The approved four-direction walk to a spot. `conceal` marks the walk into (in) or out of
+  // (out) the cave entrance, during which the resident goes dark and out of sight.
+  | { readonly kind: 'walk'; readonly to: SpotId; readonly conceal?: 'in' | 'out' }
+  // Walking with a load in the hands (the composite carry frames).
+  | { readonly kind: 'carry'; readonly load: LoadId; readonly to: SpotId }
+  // Working in place for `ms` of logical time, facing `facing`.
+  | { readonly kind: 'work'; readonly action: WorkId; readonly ms: number; readonly facing: -1 | 1 }
+  // Inside the cave, out of sight: the short interior work interval. No interior is drawn.
+  | { readonly kind: 'hidden'; readonly ms: number };
 
-const loopIndex = (elapsedMs: number): 0 | 1 =>
-  (Math.floor(Math.max(0, elapsedMs) / CREW_FRAME_MS) % 2) as 0 | 1;
-// 0..1 within the current loop frame.
-const frameProgress = (elapsedMs: number): number => (Math.max(0, elapsedMs) % CREW_FRAME_MS) / CREW_FRAME_MS;
+const walk = (to: SpotId): Step => ({ kind: 'walk', to });
+const carry = (load: LoadId, to: SpotId): Step => ({ kind: 'carry', load, to });
+const work = (action: WorkId, ms: number, facing: -1 | 1 = 1): Step => ({ kind: 'work', action, ms, facing });
+
+// One resident's routine in one Wave: steps that run back to back from the resident's place.
+// `from` is that place (checked against the Wave sequence by a test). A Wave without a routine
+// for a resident leaves them to their role (below) or standing at their place.
+export interface Routine {
+  readonly from: ResidentPlace;
+  readonly steps: readonly Step[];
+}
+const routine = (from: ResidentPlace, ...steps: Step[]): Routine => ({ from, steps });
+
+// The cave trip: walk to the entrance, walk in (going dark as the entrance swallows the
+// resident), work inside out of sight, walk out. The exterior changes after the work.
+const CAVE_INTERIOR_WORK_MS = 1000;
+const caveTrip = (from: ResidentPlace): Routine =>
+  routine(
+    from,
+    walk('cave'),
+    { kind: 'walk', to: 'cave-inside', conceal: 'in' },
+    { kind: 'hidden', ms: CAVE_INTERIOR_WORK_MS },
+    { kind: 'walk', to: 'cave', conceal: 'out' },
+  );
+const walkHome = (from: ResidentPlace, to: SpotId): Routine => routine(from, walk(to));
+
+const R1 = FIRST_RESIDENT_ID;
+const R2 = SECOND_RESIDENT_ID;
+const R3 = THIRD_RESIDENT_ID;
+const [R4, R5, R6] = VILLAGE_RESIDENT_IDS;
+
+// Routines by Wave, then resident. Independent work is parallel: several residents may
+// have a routine in the same Wave, each running from the Wave's start.
+export const ROUTINES: Partial<Record<WaveId, Readonly<Record<string, Routine>>>> = {
+  // Turn 3
+  'farm-matures': { [R2]: routine('plot', work('dig', 1300)) },
+  'human-walks-to-workshop': { [R3]: routine('fire', walk('workshop')) },
+  'human-gathers-stone': { [R3]: routine('workshop', work('gather', 1700)) },
+  'human-carries-stone': { [R3]: routine('workshop', carry('stone-block', 'hut-site')) },
+  // The mallet strikes the second hut's wall; the hut rises after the first strikes.
+  'human-builds-hut': { [R3]: routine('hut-site', work('build', 2100)) },
+  // The furnace is built from the right, so the builder faces left (the mirrored frames).
+  'furnace-lights': { [R3]: routine('hut-site', walk('furnace'), work('build', 1400, -1)) },
+  'farm-blossoms': { [R2]: routine('plot', work('dig', 1300)) },
+  'cave-furnished': { [R2]: caveTrip('plot') },
+  'livestock-fenced': { [R3]: routine('furnace', walk('pen'), work('build', 2400)), [R2]: walkHome('cave', 'plot') },
+  'riverbed-dug': { [R3]: routine('pen', walk('riverbed'), work('dig', 2600)) },
+  // Turn 4
+  'water-carried': {
+    [R3]: routine(
+      'riverbed',
+      walk('spring'),
+      // The bucket is filled at the pond (splash), carried to the animals' basin, and poured in.
+      work('fill', 600),
+      carry('bucket', 'pen'),
+      work('pour', 700),
+    ),
+  },
+  'village-built': {
+    // The first home is built by its own builder.
+    [R4]: routine('village', walk('home-a'), work('build', 1500)),
+    // The second is built from stone fetched from the pile and carried over.
+    [R5]: routine('village', walk('stone-pile'), work('gather', 600), carry('stone-block', 'home-b'), work('build', 1200)),
+    // Stone work at the workshop meanwhile.
+    [R6]: routine('village', walk('workshop'), work('build', 1500)),
+  },
+  'ecosystem-flourishes': { [R2]: routine('plot', work('dig', 1500)) },
+  'shrine-appears': { [R2]: caveTrip('plot') },
+  'epilogue-growth': { [R2]: walkHome('cave', 'plot') },
+};
+
+// --- Roles: once the village has gathered (six residents), every resident has a lasting
+// job that goes on while no Wave gives them a routine, and after the END. Assignment is a
+// presentation choice (which resident does what), not a rule; each stands at its station.
+export const ROLES_FROM_POPULATION = 6;
+type Activity =
+  | { readonly kind: 'warm' }
+  | { readonly kind: 'work'; readonly action: WorkId; readonly facing: -1 | 1 };
+interface Role {
+  readonly job: string;
+  readonly station: ResidentPlace;
+  readonly activity: Activity;
+}
+export const ROLES: Readonly<Record<string, Role>> = {
+  [R1]: { job: 'communal cooking', station: 'fire', activity: { kind: 'warm' } },
+  [R2]: { job: 'cultivation', station: 'plot', activity: { kind: 'work', action: 'dig', facing: 1 } },
+  [R3]: { job: 'water delivery', station: 'pen', activity: { kind: 'work', action: 'pour', facing: 1 } },
+  [R4]: { job: 'building and fetching stone', station: 'home-a', activity: { kind: 'work', action: 'gather', facing: 1 } },
+  [R5]: { job: 'building', station: 'home-b', activity: { kind: 'work', action: 'build', facing: 1 } },
+  [R6]: { job: 'stone work', station: 'workshop', activity: { kind: 'work', action: 'build', facing: 1 } },
+};
+
+// 0..1 within the current 300 ms frame.
+const frameProgress = (elapsedMs: number): number => (Math.max(0, elapsedMs) % ACTION_FRAME_MS) / ACTION_FRAME_MS;
 
 const restingPose = (at: Point, seconds: number, phase: number): HumanPose =>
   stillPose('idle', false, at, Math.max(0, Math.sin(seconds * TAU * 0.45 + phase)) * 1.2);
@@ -144,110 +205,174 @@ const restingPose = (at: Point, seconds: number, phase: number): HumanPose =>
 interface CrewPose {
   readonly pose: HumanPose;
   readonly layers: CrewLayers;
+  // 0 hidden .. 1 in view (the cave entrance swallowing or releasing a resident).
+  readonly visibility: number;
 }
 
-const NO_LAYERS: CrewLayers = { object: null, effect: null };
-const rest = (at: Point, seconds: number, phase: number): CrewPose => ({ pose: restingPose(at, seconds, phase), layers: NO_LAYERS });
+const NO_LAYERS: CrewLayers = { effect: null };
+const visible = (pose: HumanPose, layers: CrewLayers = NO_LAYERS): CrewPose => ({ pose, layers, visibility: 1 });
+const rest = (at: Point, seconds: number, phase: number): CrewPose => visible(restingPose(at, seconds, phase));
 
-// The object a resident holds while working in place, posed for loop frame 0 or 1.
-// `t` is progress through the whole work step (used by the fill and pour changes).
-export function workLayers(action: WorkId, at: Point, facing: -1 | 1, elapsedMs: number, t: number): CrewLayers {
-  const frame = loopIndex(elapsedMs);
-  const hand = { x: at.x + facing * HAND.x, y: at.y + HAND.y };
-  const ground = { x: at.x + facing * FOOT_REACH.x, y: at.y + FOOT_REACH.y };
-  const object = (kind: ObjectKind, p: Point, angle: number, filled = false): ObjectLayer => ({
-    kind,
-    x: p.x,
-    y: p.y,
-    angle: facing * angle,
-    filled,
-    frame,
-  });
-  const effect = (kind: EffectKind, p: Point): EffectLayer => ({ kind, x: p.x, y: p.y, phase: frameProgress(elapsedMs) });
-  switch (action) {
-    case 'gather':
-      // Frame 0: the stone lies at the feet. Frame 1: it is lifted in the hand.
-      return frame === 0
-        ? { object: object('stone', ground, 0), effect: effect('dust', ground) }
-        : { object: object('stone', hand, 0), effect: null };
-    case 'build':
-      // Frame 0: the mallet is raised. Frame 1: it comes down and chips fly.
-      return frame === 0
-        ? { object: object('mallet', hand, -0.9), effect: null }
-        : { object: object('mallet', { x: hand.x + facing * 3, y: hand.y + 5 }, 0.55), effect: effect('chips', { x: hand.x + facing * 8, y: at.y - 5 }) };
-    case 'dig':
-      // Frame 0: the spade is lifted. Frame 1: its blade is in the ground and soil flies.
-      return frame === 0
-        ? { object: object('spade', hand, -0.5), effect: null }
-        : { object: object('spade', { x: hand.x + facing * 2, y: hand.y + 6 }, 0.25), effect: effect('dirt', ground) };
-    case 'fill':
-      // The bucket is dipped into the pond and comes up full halfway through.
-      return {
-        object: object('bucket', hand, frame === 0 ? 0 : 0.12, t >= 0.5),
-        effect: t < 0.5 ? effect('splash', { x: hand.x + facing * 6, y: at.y - 3 }) : null,
-      };
-    case 'pour':
-      // The bucket tips over the basin, spilling its water, and is empty by the end.
-      return {
-        object: object('bucket', { x: hand.x + facing * 3, y: hand.y }, 0.4 + 0.9 * clamp01(t * 2) + 0.1 * frame, t < 0.5),
-        effect: t > 0.15 && t < 0.75 ? effect('splash', { x: hand.x + facing * 11, y: at.y - 6 }) : null,
-      };
-  }
-}
-
-// The load held while walking.
-export function carryLayers(load: LoadId, at: Point, facing: -1 | 1): CrewLayers {
-  return {
-    object: {
-      kind: load,
-      x: at.x + facing * HAND.x,
-      y: at.y + HAND.y,
-      angle: 0,
-      // The only carried bucket is the one filled at the pond.
-      filled: load === 'bucket',
-      frame: 0,
-    },
-    effect: null,
+// The effect a work frame raises at its contact point, if that frame raises one.
+function workEffect(work: WorkId, index: 0 | 1, at: Point, facing: -1 | 1, elapsedMs: number, t: number): EffectLayer | null {
+  const phase = frameProgress(elapsedMs);
+  const effect = (kind: EffectKind, p: Point): EffectLayer => ({ kind, x: p.x, y: p.y, phase });
+  const contact = (action: ActionId, frame: 0 | 1): Point => {
+    const offset = contactOffset(action, frame, facing)!;
+    return { x: at.x + offset.x, y: at.y + offset.y };
   };
+  switch (work) {
+    case 'gather':
+      // The stone lies at the feet in the stooped frame, and is lifted in the next.
+      return index === 0 ? effect('dust', contact('gather', 0)) : null;
+    case 'build':
+      return index === 1 ? effect('chips', contact('build', 1)) : null;
+    case 'dig':
+      return index === 1 ? effect('dirt', contact('dig', 1)) : null;
+    case 'fill':
+      // Splash where the bucket meets the pond, just ahead of the resident.
+      return effect('splash', { x: at.x + facing * 13, y: at.y - 2 });
+    case 'pour':
+      // The water leaves the bucket's rim toward the basin.
+      return t > 0.15 && t < 0.8 ? effect('splash', { x: at.x + facing * 14, y: at.y - 12 }) : null;
+  }
 }
 
-// The pose and layers of the third resident during a Wave with a routine, from the
-// Wave's logical progress and elapsed time alone.
-function routinePose(snapshot: SliceSnapshot, steps: readonly Step[], start: Point): CrewPose {
-  const wave = snapshot.activeWave!;
-  const progress = clamp01(wave.progress);
-  const seconds = snapshot.clockMs / 1000;
-  let from = start;
-  let stepStart = 0;
-  for (const { until, step } of steps) {
-    const isLast = until >= 1;
-    if (progress < until || isLast) {
-      const span = Math.max(1e-6, until - stepStart);
-      const t = clamp01((progress - stepStart) / span);
-      const elapsedMs = (progress - stepStart) * wave.durationMs;
-      if (step.kind === 'walk' || step.kind === 'carry') {
-        const to = SPOTS[step.to];
-        const at = lerp(from, to, t);
-        const direction = selectWalkDirection(to.x - from.x, to.y - from.y);
-        if (t >= 1 || direction === null) return rest(to, seconds, 0);
-        const pose = walkingPose(at, direction, elapsedMs, false);
-        if (step.kind === 'walk') return { pose, layers: NO_LAYERS };
-        // The human layer is the approved walk; the load is a separate layer in the hands.
-        return { pose, layers: carryLayers(step.load, at, to.x < from.x ? -1 : 1) };
-      }
-      if (step.kind === 'work') {
-        const facing = step.facing ?? 1;
-        // The human layer is the approved standing pose with a small bob on each loop frame.
-        const pose = { ...stillPose('idle', false, from, loopIndex(elapsedMs) === 1 ? 1.2 : 0), facing };
-        return { pose, layers: workLayers(step.action, from, facing, elapsedMs, t) };
-      }
-      return rest(from, seconds, 0);
-    }
-    // This step is over: the next one starts where this one ended.
-    if (step.kind === 'walk' || step.kind === 'carry') from = SPOTS[step.to];
-    stepStart = until;
+// A resident working in place `elapsedMs` into a step of length `t` (0..1) of its span.
+export function workPose(work: WorkId, at: Point, facing: -1 | 1, elapsedMs: number, t: number): CrewPose {
+  const art = WORK_ART[work];
+  const index = art.alternates ? actionFrameIndex(elapsedMs) : 0;
+  return visible(actionPose(art.action, index, at, facing), { effect: workEffect(work, index, at, facing, elapsedMs, t) });
+}
+
+interface Segment {
+  readonly step: Step;
+  readonly from: Point;
+  readonly to: Point;
+  readonly startMs: number;
+  readonly endMs: number;
+}
+
+const walkMs = (from: Point, to: Point): number => Math.hypot(to.x - from.x, to.y - from.y) / HUMAN_WALK_SPEED_PX_PER_MS;
+
+// The routine laid out in logical time from `start`.
+function plan(steps: readonly Step[], start: Point): readonly Segment[] {
+  const segments: Segment[] = [];
+  let at = start;
+  let now = 0;
+  for (const step of steps) {
+    const to = step.kind === 'walk' || step.kind === 'carry' ? SPOTS[step.to] : at;
+    const length = step.kind === 'walk' || step.kind === 'carry' ? walkMs(at, to) : step.ms;
+    segments.push({ step, from: at, to, startMs: now, endMs: now + length });
+    at = to;
+    now += length;
   }
-  return rest(from, seconds, 0);
+  return segments;
+}
+
+// The routine's length in logical milliseconds, from its own starting place.
+export function routineDurationMs(r: Routine, id: string): number {
+  const segments = plan(r.steps, residentSpot(r.from, id));
+  return segments.length === 0 ? 0 : segments[segments.length - 1].endMs;
+}
+
+// Where the resident ends up, and so where the Wave must leave them.
+export function routineEndSpot(r: Routine, id: string): Point {
+  const segments = plan(r.steps, residentSpot(r.from, id));
+  return segments.length === 0 ? residentSpot(r.from, id) : segments[segments.length - 1].to;
+}
+
+// When (ms into the Wave) the resident's first `action` step begins, or null.
+export function workStartMs(r: Routine, id: string, action: WorkId): number | null {
+  const found = plan(r.steps, residentSpot(r.from, id)).find((s) => s.step.kind === 'work' && s.step.action === action);
+  return found === undefined ? null : found.startMs;
+}
+
+// The span (ms into the Wave) the resident spends out of sight inside the cave.
+export function hiddenSpan(r: Routine, id: string): { readonly startMs: number; readonly endMs: number } | null {
+  const found = plan(r.steps, residentSpot(r.from, id)).find((s) => s.step.kind === 'hidden');
+  return found === undefined ? null : { startMs: found.startMs, endMs: found.endMs };
+}
+
+// The first moment the resident has reached its destination and stopped walking.
+export function arrivalMs(r: Routine, id: string, to: SpotId): number | null {
+  const found = plan(r.steps, residentSpot(r.from, id)).find((s) => (s.step.kind === 'walk' || s.step.kind === 'carry') && s.step.to === to);
+  return found === undefined ? null : found.endMs;
+}
+
+// 0..1: how much of the resident is in view while walking into or out of the entrance.
+const swallowed = (conceal: 'in' | 'out', t: number): number =>
+  conceal === 'in' ? 1 - smoothstep(0.4, 1, t) : smoothstep(0, 0.6, t);
+
+function routinePose(steps: readonly Step[], start: Point, elapsedMs: number, seconds: number): CrewPose {
+  const segments = plan(steps, start);
+  const last = segments[segments.length - 1];
+  if (last === undefined || elapsedMs >= last.endMs) return rest(last?.to ?? start, seconds, 0);
+  const segment = segments.find((s) => elapsedMs < s.endMs)!;
+  const { step } = segment;
+  const local = elapsedMs - segment.startMs;
+  const span = Math.max(1e-6, segment.endMs - segment.startMs);
+  const t = clamp01(local / span);
+  switch (step.kind) {
+    case 'walk':
+    case 'carry': {
+      const at = walkToward(segment.from, segment.to, local);
+      const direction = selectWalkDirection(segment.to.x - segment.from.x, segment.to.y - segment.from.y);
+      if (direction === null) return rest(segment.to, seconds, 0);
+      if (step.kind === 'carry') {
+        const action: ActionId = step.load === 'bucket' ? 'water-carry' : 'carry';
+        const facing = segment.to.x < segment.from.x ? -1 : 1;
+        return visible(actionPose(action, actionFrameIndex(local), at, facing));
+      }
+      const pose = walkingPose(at, direction, local, false);
+      return { pose, layers: NO_LAYERS, visibility: step.conceal === undefined ? 1 : swallowed(step.conceal, t) };
+    }
+    case 'work':
+      return workPose(step.action, segment.from, step.facing, local, t);
+    case 'hidden':
+      return { pose: walkingPose(segment.from, 'up', 0, false), layers: NO_LAYERS, visibility: 0 };
+  }
+}
+
+function crewVisual(id: string, crew: CrewPose, scale = 1): ResidentVisual {
+  // A resident going into the cave recedes as well as fades.
+  const receding = 0.8 + 0.2 * crew.visibility;
+  return { id, pose: crew.pose, alpha: crew.visibility, scale: scale * receding, shakeX: 0, layers: crew.layers };
+}
+
+// The role's stationary work while no Wave gives the resident a routine.
+function rolePose(role: Role, at: Point, snapshot: SliceSnapshot): CrewPose {
+  const { activity } = role;
+  if (activity.kind === 'warm') return visible(stillPose('warm', false, at));
+  // The splash of a pour is a short pulse once per loop frame pair.
+  const t = (snapshot.clockMs % (ACTION_FRAME_MS * 2)) / (ACTION_FRAME_MS * 2);
+  return workPose(activity.action, at, activity.facing, snapshot.clockMs, t);
+}
+
+// The pose for resident `resident` from a Wave routine, or from its role, or null when
+// neither applies (the caller then falls back to the Turn 1/2 behaviour or standing still).
+function autonomousPose(snapshot: SliceSnapshot, resident: Resident): CrewPose | null {
+  const wave = snapshot.activeWave;
+  const seconds = snapshot.clockMs / 1000;
+  const waveRoutine = wave === null ? undefined : ROUTINES[wave.id]?.[resident.id];
+  if (wave !== null && waveRoutine !== undefined) {
+    return routinePose(waveRoutine.steps, residentSpot(resident.place, resident.id), wave.elapsedMs, seconds);
+  }
+  const role = ROLES[resident.id];
+  if (role !== undefined && snapshot.world.population >= ROLES_FROM_POPULATION && resident.place === role.station) {
+    return rolePose(role, residentSpot(resident.place, resident.id), snapshot);
+  }
+  return null;
+}
+
+// Residents 1 and 2 keep the approved Turn 1/2 behaviour; this is non-null only when one of
+// them has autonomous work (a routine, or a role once the village stands) or has moved off
+// their Turn 2 post (the second resident at the cave).
+export function computeFounderVisual(snapshot: SliceSnapshot, resident: Resident): ResidentVisual | null {
+  const crew = autonomousPose(snapshot, resident);
+  if (crew !== null) return crewVisual(resident.id, crew);
+  if (resident.place === 'cave') return crewVisual(resident.id, rest(PLACE_SPOTS.cave, snapshot.clockMs / 1000, 0));
+  return null;
 }
 
 const SPLIT_SHAKE_END = 0.5;
@@ -265,7 +390,6 @@ export function computeCrewVisuals(snapshot: SliceSnapshot): readonly ResidentVi
   if (third !== undefined || wave?.id === 'human-divides') {
     const place = third?.place ?? 'fire';
     const start = PLACE_SPOTS[place];
-    const routine = wave === null ? undefined : CREW_ROUTINES[wave.id];
     if (wave?.id === 'human-divides' && third === undefined) {
       const p = clamp01(wave.progress);
       // Not drawn during the first resident's shake, then pops out beside them.
@@ -278,17 +402,19 @@ export function computeCrewVisuals(snapshot: SliceSnapshot): readonly ResidentVi
         shakeX: 0,
       });
     } else {
-      const crew = routine === undefined ? rest(start, seconds, 1) : routinePose(snapshot, routine, start);
-      visuals.push({ id: THIRD_RESIDENT_ID, pose: crew.pose, alpha: 1, scale: 1, shakeX: 0, layers: crew.layers });
+      const crew = third === undefined ? null : autonomousPose(snapshot, third);
+      visuals.push(crewVisual(THIRD_RESIDENT_ID, crew ?? rest(start, seconds, 1)));
     }
   }
 
   // Residents 4 to 6 gather in the village: present once the Wave has completed,
-  // popping in one after another while it plays.
+  // popping in one after another while it plays; then each does their own work.
   VILLAGE_RESIDENT_IDS.forEach((id, index) => {
     const at = T.villageResidents[index];
-    if (known(id) !== undefined) {
-      visuals.push({ id, pose: restingPose(at, seconds, 2 + index), alpha: 1, scale: 1, shakeX: 0 });
+    const resident = known(id);
+    if (resident !== undefined) {
+      const crew = autonomousPose(snapshot, resident) ?? rest(residentSpot(resident.place, id), seconds, 2 + index);
+      visuals.push(crewVisual(id, crew));
     } else if (wave?.id === 'village-gathers') {
       const local = clamp01((wave.progress - 0.2 * index) / 0.5);
       visuals.push({
