@@ -1,6 +1,6 @@
 import type { SliceSnapshot } from '../game/sliceGame';
 import { PLANT_LIFE_WAVES, type WaveId } from '../game/waves';
-import { hasCaredForAnimal, hasCookingFire, hasSproutPlot, hasUpgradedHut } from '../game/worldState';
+import { hasCaredForAnimal, hasCookingFire, hasDomesticLivestockFamily, hasMatureFarm, hasSproutPlot, hasUpgradedHut } from '../game/worldState';
 import { clamp01, easeOutBack, levelUpBlend, stillPose, walkingPose, type HumanPose } from './animation';
 import { walkRoute } from './humanWalk';
 import { LAYOUT } from './layout';
@@ -52,6 +52,7 @@ export function computeLifeHuman(snapshot: SliceSnapshot): LifeHuman | null {
     if (step.direction === null) return { pose: stillPose('idle', isCold, step), alpha: 1 };
     return { pose: walkingPose(step, step.direction, wave.elapsedMs, isCold), alpha: 1 };
   }
+  if (hasMatureFarm(snapshot.world)) return { pose: atPlot, alpha: 1 };
   if (wave !== null || hasSproutPlot(snapshot.world)) return { pose: atPlot, alpha: 0 };
   return null;
 }
@@ -71,6 +72,9 @@ const NO_FARM: FarmVisual = { frame: null, alpha: 0, scale: 1 };
 // with a small scale-up at the start of the water Wave.
 export function computeFarmVisual(snapshot: SliceSnapshot): FarmVisual {
   const wave = activePlantWave(snapshot);
+  const settlement = snapshot.activeWave?.id === 'settlement-expands' ? snapshot.activeWave : null;
+  if (settlement) return { frame: FARM_HARVEST_FRAMES[0], alpha: 1 - settlement.progress, scale: 1 };
+  if (hasMatureFarm(snapshot.world)) return NO_FARM;
   if (wave?.id === 'human-walks-to-plot') return NO_FARM;
   if (wave?.id === 'human-waters-plot') {
     return { frame: FARM_WATER_FRAME, alpha: 1, scale: 0.9 + 0.1 * easeOutBack(wave.progress / 0.15) };
@@ -92,6 +96,10 @@ export interface FarmTileVisual {
 export function computeFarmTiles(snapshot: SliceSnapshot): readonly FarmTileVisual[] {
   const count = LAYOUT.farmPlotTiles.length;
   const wave = snapshot.activeWave;
+  if (wave?.id === 'settlement-expands') {
+    return LAYOUT.farmPlotTiles.map(() => ({ alpha: 1 - wave.progress, scale: 1 }));
+  }
+  if (hasMatureFarm(snapshot.world)) return LAYOUT.farmPlotTiles.map(() => ({ alpha: 0, scale: 1 }));
   if (wave?.id === 'farm-expands') {
     return LAYOUT.farmPlotTiles.map((_, index) => {
       const start = (0.7 * index) / Math.max(1, count - 1);
@@ -186,6 +194,21 @@ export function computeAnimalVisual(snapshot: SliceSnapshot): AnimalVisual {
   const frame = loopFrame(snapshot.clockMs);
   const base = { frame, frameTextureKey: ANIMAL_EAT_FRAMES[frame].textureKey };
   const wave = snapshot.activeWave;
+  if (wave?.id === 'livestock-domesticated') {
+    const blend = levelUpBlend(wave.progress);
+    return {
+      ...base,
+      wildAlpha: 0,
+      wildScale: 1,
+      eatAlpha: blend.oldAlpha,
+      eatScale: blend.oldScale,
+      glow: blend.glow,
+      sparkle: blend.sparkle,
+    };
+  }
+  if (hasDomesticLivestockFamily(snapshot.world)) {
+    return { ...base, wildAlpha: 0, wildScale: 1, eatAlpha: 0, eatScale: 1, glow: 0, sparkle: null };
+  }
   if (wave?.id === 'animal-eats') {
     const blend = levelUpBlend(wave.progress);
     return {

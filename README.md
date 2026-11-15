@@ -1,6 +1,6 @@
 # Island Grow Game
 
-TypeScript + Phaser + Vite + Vitest のプロジェクトです。現在は Vertical Slice 01「🔥で小人が暖まる」（Turn 1）と、その後の 🌱「畑・雨よけの小屋化・生活の始まり」（Turn 2）が遊べます（仮アセット）。Turn 2 の開始時に小人が 2 人に分裂します（Issue #12。見た目・体感は 2026-10-12 に Cloudflare Pages のプレビューで Human Review 承認済みです）。🪨 / 💧 の進行、Turn 3 以降の人口増加、24 順列、END 判定などは未実装です。
+TypeScript + Phaser + Vite + Vitest のプロジェクトです。TRUE代表ルートの 🔥 Turn 1、🌱 Turn 2、🪨 Turn 3 が遊べます。Turn 1/2 の既存素材と分裂演出は承認済みです。Turn 3 のAI生成素材とテンポは provisional で、Human Review 前に approved へ昇格しません。💧、Turn 4 以降、24 順列、END 判定は未実装です。
 
 ## 前提ランタイム
 
@@ -46,9 +46,15 @@ Turn 1 が完了すると 🌱 だけが選べるようになります（Turn 1 
 7. `cooking-starts`: 既存の焚き火が膨らみながら薄れ、同じ接地点で調理の火（`cook_pot_steam1` ↔ `steam2`）へレベルアップする（鍋を隣に置くのではなく、焚き火の置き換え。完了時に `fireStage` が 1 → 2 になり、以後は調理の火だけが表示される）
 8. `animal-eats`: 既存の動物 1 頭が、同じ接地点で餌を食べる姿（`animal_eat1` ↔ `eat2`）へレベルアップする（動物は 1 頭のまま。完了時に `animalStage` が 1 → 2 になる）
 
-どのレベルアップ（小屋・調理の火・動物）も、論理クロックから導く短い「入れ替え」演出（旧い絵が少し膨らんで薄れ、新しい絵が同じ接地点から現れる。淡い光と小さなきらめき）で、Wave の完了条件はアニメーションの完了ではありません。完了後、🌱 が「✓ 選択済み」になり、畑の収穫アニメーション・調理の火の湯気・動物の食事が控えめに続きます。完了時の人口は 2 人です。`WorldState.residents` に安定した ID を持つ 2 つの状態（`resident-1`: 火の前で待機、`resident-2`: 畑の位置）が残り、`humanStage` は 2 です（将来の Turn 3 がこの状態を引き継ぎます。Turn 3 の人口増加は未実装です）。画面上は、小人 1 が火の前で idle のまま、小人 2 は既存の農作業・複合画像（畑の位置）で表現されます。動物は 1 頭のままで、柵・繁殖・池・水路・祠は出ません。
+どのレベルアップ（小屋・調理の火・動物）も、論理クロックから導く短い「入れ替え」演出（旧い絵が少し膨らんで薄れ、新しい絵が同じ接地点から現れる。淡い光と小さなきらめき）で、Wave の完了条件はアニメーションの完了ではありません。Turn 2完了時の人口は2人です。`WorldState.residents` に安定したIDを持つ2つの状態（`resident-1`: 火の前、`resident-2`: 畑）が残り、`humanStage` は2です。動物はこの時点では1頭のままで、柵・繁殖・池・水路・祠は出ません。Turn 3を始めるまで、この既存のTurn 2終了表示が維持されます。
 
 分裂の長さ 600 ms、震えの振幅 2.5 px、9 Hz、ポップの拡大率 0.6 倍は、Notion に数値の定義がないため Human Review 対象とし、2026-10-12 に Cloudflare Pages の実機確認で承認されました（`SPLIT_WAVE_MS` は `src/game/timing.ts`、震え・ポップは `src/presentation/residents.ts`）。これらの値を変更する場合は、再度 Human Review が必要です。
+
+### Turn 3（🪨）のプレイ確認
+
+Turn 2 完了後は 🪨 だけが選べます。受理時に人口はちょうど3人になり、合計6.8論理秒で `human-splits-third` → `human-gathers-stone` → `stone-workshop-built` → `settlement-expands` → `livestock-domesticated` の順に進みます。石の採取と加工設備を原因として直列に見せた後、成熟農地、2棟目の住居、実用洞窟、乾いた川床をまとめて成立させ、最後に白いアリクイ風の親子2頭と柵・餌場・水桶を成立させます。川床に水は流れず、池・水路・祠は作りません。
+
+永続結果は `WorldState` の明示的なStage/Countだけで決まり、画像やアニメーション完了イベントからは変更しません。採取・建築・運搬は各3フレームのprovisional PNGを、論理クロックから180 ms/フレームで反復します。Turn 3素材の構図・造形・相対サイズ・接地・テンポと、360x640 / 390x844での重なりはHuman Review必須です。
 
 上下左右の歩行確認用に、開発サーバーでのみ `/?humanWalkPreview` を開くと、小人が右→下→左→上へ歩き続けるレビュー用ループを表示します（🔥 を押すと `isCold` が false になった後の見た目も確認できます）。本番ビルドでは無効です。
 5. 再生中に 🔥 や他のボタンを連打しても、進行が重複したり変わったりしないことを確認します。
@@ -227,15 +233,17 @@ sips -s format png asset-source/initial-turn1/campfire_frame_b_1254.jpg --out as
 
 - `src/main.ts`: Phaser の起動設定
 - `src/game/`: Phaser に依存しない純粋な TypeScript の WorldState と Game Logic。
-  - `worldState.ts`: `WorldState`（`plantStage`・`shelterStage`・`animalStage`、`fireStage` の 2 を含む）と初期状態、意味判定 `hasSproutPlot`（Turn 2 の芽の畑。拡張した畑を含む）/ `hasUpgradedHut` / `hasCookingFire` / `hasCaredForAnimal`
-  - `waves.ts`: Wave の定義（Turn 1 の `FIRE_WARMING_WAVES`、Turn 2 の `PLANT_LIFE_WAVES`。順序と、各 Wave 完了時の WorldState 変更）
+  - `worldState.ts`: `WorldState` と初期状態、Turn 1〜3の意味判定。Turn 3は石加工・洞窟・乾いた川床・住居数・動物数・家畜設備を別の明示状態として保持
+  - `waves.ts`: Wave の定義（Turn 1 `FIRE_WARMING_WAVES`、Turn 2 `PLANT_LIFE_WAVES`、Turn 3 `ROCK_SETTLEMENT_WAVES`）
   - `timing.ts`: 再生時間と再生速度の唯一の境界。Wave の長さは再生速度 1x の論理ミリ秒で、将来の一括再生速度変更はここを通ります。
-  - `sliceGame.ts`: 入力ガード（🌱 は Turn 1 完了後に一度だけ）、Wave 再生中の入力ロック、論理クロックによる Wave の順次再生、選択可能な要素 `selectableElements`
+  - `sliceGame.ts`: 入力ガード（🔥→🌱→🪨の順に一度だけ）、Wave 再生中の入力ロック、論理クロックによるWaveの順次再生、選択可能な要素 `selectableElements`
 - `src/presentation/`: Phaser に依存するコード（Scene など）。画面比率・サイズ依存の値は `display.ts` と `layout.ts` に集約しています。
   - `IslandScene.ts`: 入力を `SliceGame` に渡し、`SliceGame.snapshot()` から毎フレーム描画するだけの Scene
   - `animation.ts`: スナップショットから小人・火・動物のidleの見た目を計算する純粋関数（Phaser 非依存）
   - `worldAssets.ts`: 島・雨よけ・動物・焚き火 2 フレームの PNG のメタデータ（キー、ファイル名、サイズ、接地点、スケール、配置）
   - `turn2Assets.ts`: Turn 2 の PNG（畑 3 フレーム・動物 2 フレーム・鍋 2 フレーム・小屋）のメタデータとアニメーション契約
+  - `turn3Assets.ts`: Turn 3のprovisional PNG、ground anchor、配置と採取・建築・運搬アニメーション契約
+  - `turn3Animation.ts`: Turn 3のWaveと論理クロックから小道具・作業フレームを導く純粋関数
   - `residents.ts`: `WorldState.residents` と論理クロックから、各小人（Turn 2 の分裂演出を含む）の見た目を計算する純粋関数（Phaser 非依存）
   - `lifeAnimation.ts`: スナップショットから Turn 2 の畑・小屋／調理の火／動物のレベルアップの見た目を計算する純粋関数（Phaser 非依存。共通のレベルアップ演出 `levelUpBlend` は `animation.ts`）
 - `scripts/`: ランタイム世界 PNG を元素材から再生成する Node スクリプト（`deriveWorldAssets.mjs`、小屋用の `deriveHutAsset.mjs`、畑用の `deriveFarmPlotAsset.mjs`）

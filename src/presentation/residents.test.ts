@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { SliceGame, type SliceSnapshot } from '../game/sliceGame';
 import { SPLIT_WAVE_MS, WAVE_DURATIONS_MS } from '../game/timing';
-import { PLANT_LIFE_WAVES } from '../game/waves';
+import { PLANT_LIFE_WAVES, ROCK_SETTLEMENT_WAVES } from '../game/waves';
 import { computeHumanPose } from './animation';
 import { HUMAN_SPRITE_SCALE } from './humanAssets';
 import { LAYOUT } from './layout';
@@ -20,6 +20,13 @@ function turn2At(intoTurn2Ms: number, speed = 1): SliceGame {
   game.selectElement('plant');
   game.setPlaybackSpeed(speed);
   game.advance(intoTurn2Ms / speed);
+  return game;
+}
+
+function turn3At(intoTurn3Ms: number): SliceGame {
+  const game = turn2At(TURN2_MS);
+  game.selectElement('rock');
+  game.advance(intoTurn3Ms);
   return game;
 }
 
@@ -173,6 +180,28 @@ describe('split level-up', () => {
       computeSplitEffect(before);
     }
     expect(game.snapshot()).toEqual(before);
+  });
+
+  it('repeats ぷるぷる→ポンッ at the fire for the third resident', () => {
+    const duration = ROCK_SETTLEMENT_WAVES[0].durationMs;
+    const shaking = turn3At(duration * 0.4).snapshot();
+    expect(shaking.world.residents.map((resident) => [resident.id, resident.place])).toEqual([
+      ['resident-1', 'fire'],
+      ['resident-2', 'plot'],
+      ['resident-3', 'fire'],
+    ]);
+    expect(visualOf(shaking, 'resident-3')).toMatchObject({ alpha: 0 });
+    expect(computeSplitEffect(shaking)?.ground).toEqual(LAYOUT.humanWarm);
+    const sourceShakes = Array.from({ length: 40 }, (_, i) =>
+      visualOf(turn3At((i / 40) * duration * 0.5 + 20).snapshot(), 'resident-1').shakeX,
+    );
+    expect(Math.max(...sourceShakes.map(Math.abs))).toBeGreaterThan(0);
+
+    const popping = turn3At(duration * 0.7).snapshot();
+    expect(visualOf(popping, 'resident-3')).toMatchObject({
+      alpha: 1,
+      pose: { x: LAYOUT.humanWarm.x, y: LAYOUT.humanWarm.y },
+    });
   });
 });
 

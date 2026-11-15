@@ -1,0 +1,42 @@
+{
+  "status": "provisional",
+  "frameSize": {
+    "width": 512,
+    "height": 512
+  },
+  "origin": {
+    "x": 0.5,
+    "y": 0.9375
+  },
+  "frameDurationMs": 180,
+  "cycleDurationMs": 540,
+  "repeat": true,
+  "direction": "right",
+  "rootMotion": false,
+  "animations": [
+    {
+      "id": "gather",
+      "sequence": [
+        "gather-1.png",
+        "gather-2.png",
+        "gather-3.png"
+      ]
+    },
+    {
+      "id": "build",
+      "sequence": [
+        "build-1.png",
+        "build-2.png",
+        "build-3.png"
+      ]
+    },
+    {
+      "id": "carry",
+      "sequence": [
+        "carry-1.png",
+        "carry-2.png",
+        "carry-3.png"
+      ]
+    }
+  ]
+}

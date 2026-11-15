@@ -36,6 +36,17 @@ export const FARM_WORK_MS = {
   humanHarvestsPlot: 1500,
 } as const;
 
+// Turn 3 totals 6.8 logical seconds: the causal stone work reads in sequence,
+// then the settlement results arrive in grouped Waves. Values are provisional
+// until the required human tempo review.
+export const ROCK_WAVE_MS = {
+  humanSplitsThird: 600,
+  humanGathersStone: 1100,
+  stoneWorkshopBuilt: 1300,
+  settlementExpands: 2200,
+  livestockDomesticated: 1600,
+} as const;
+
 // Upper bound on one frame's real delta so a backgrounded tab does not skip
 // the whole sequence in a single update.
 export const MAX_FRAME_DELTA_MS = 100;
