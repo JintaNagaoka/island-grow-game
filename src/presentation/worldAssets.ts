@@ -29,7 +29,7 @@ export interface WorldAsset {
 
 // Sprite origin (0..1) that puts the asset's ground anchor on its placement
 // point, taking flipX into account.
-export function groundOrigin(asset: WorldAsset): Point {
+export function groundOrigin(asset: Pick<WorldAsset, 'groundAnchor' | 'width' | 'height' | 'flipX'>): Point {
   const x = asset.groundAnchor.x / asset.width;
   return { x: asset.flipX ? 1 - x : x, y: asset.groundAnchor.y / asset.height };
 }

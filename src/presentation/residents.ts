@@ -1,6 +1,7 @@
 import type { SliceSnapshot } from '../game/sliceGame';
-import type { Resident } from '../game/worldState';
+import { FIRST_RESIDENT_ID, SECOND_RESIDENT_ID, type Resident } from '../game/worldState';
 import { clamp01, computeHumanPose, easeOutBack, type HumanPose } from './animation';
+import { computeCrewVisuals, type CrewLayers } from './crew';
 import { LAYOUT } from './layout';
 import { computeLifeHuman } from './lifeAnimation';
 
@@ -24,6 +25,9 @@ export interface ResidentVisual {
   readonly scale: number;
   // Horizontal shake offset in design pixels.
   readonly shakeX: number;
+  // The target object and effect drawn as their own layers beside the human `pose`.
+  // Absent for a resident who holds nothing and raises no effect.
+  readonly layers?: CrewLayers;
 }
 
 export interface SplitEffect {
@@ -32,10 +36,12 @@ export interface SplitEffect {
   readonly sparkle: number;
 }
 
-// 0..1 progress of the split level-up, or null outside the 'human-splits' Wave.
+// 0..1 progress of the split level-up, or null outside a split Wave: 'human-splits'
+// (Turn 2, the second resident) or 'human-divides' (Turn 3, the third). Both shake the
+// first resident, then a new one pops out beside them at the fire.
 function splitProgress(snapshot: SliceSnapshot): number | null {
   const wave = snapshot.activeWave;
-  return wave?.id === 'human-splits' ? clamp01(wave.progress) : null;
+  return wave?.id === 'human-splits' || wave?.id === 'human-divides' ? clamp01(wave.progress) : null;
 }
 
 // A resident working or walking toward the plot follows the Turn 2 route/farm art;
@@ -46,7 +52,12 @@ const isFarmResident = (resident: Resident): boolean =>
 export function computeResidentVisuals(snapshot: SliceSnapshot): readonly ResidentVisual[] {
   const split = splitProgress(snapshot);
   const clockSeconds = snapshot.clockMs / 1000;
-  return snapshot.world.residents.map((resident, index): ResidentVisual => {
+  // Residents 1 and 2 keep the approved Turn 1/2 behaviour; residents 3 to 6 (Turn 3 and
+  // Turn 4) are drawn by crew.ts, including the ones whose arrival Wave is playing.
+  const founders = snapshot.world.residents.filter(
+    (resident) => resident.id === FIRST_RESIDENT_ID || resident.id === SECOND_RESIDENT_ID,
+  );
+  const visuals = founders.map((resident, index): ResidentVisual => {
     if (!isFarmResident(resident)) {
       // At the fire: the Turn 1 completed pose. During the split every resident
       // shares this exact ground point; only the original shakes and the new pops.
@@ -79,6 +90,7 @@ export function computeResidentVisuals(snapshot: SliceSnapshot): readonly Reside
       shakeX: 0,
     };
   });
+  return [...visuals, ...computeCrewVisuals(snapshot)];
 }
 
 // The warm glow and sparkles of the split, at the Turn 1 completed position.

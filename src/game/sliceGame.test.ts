@@ -29,6 +29,8 @@ describe('initial state', () => {
       population: 1,
       residents: [{ id: 'resident-1', place: 'start', target: null, motion: 'idle' }],
       isCold: true,
+      // Added with Turn 3/4: no durable prop exists before Turn 3, so Turn 1/2 are unchanged.
+      props: [],
     });
     expect(snapshot.phase).toBe('awaiting-input');
     expect(snapshot.selectableElements).toEqual(['fire']);
@@ -84,6 +86,7 @@ describe('fire selection', () => {
       population: 1,
       residents: [{ id: 'resident-1', place: 'fire', target: null, motion: 'idle' }],
       isCold: false,
+      props: [],
     });
   });
 
@@ -134,13 +137,15 @@ describe('input lock during Wave playback', () => {
   });
 });
 
-describe('unimplemented elements', () => {
+// The review build plays one route (🔥 → 🌱 → 🪨 → 💧); an element out of that order is
+// rejected and never starts a progression. (Before Turn 3 existed these were 'not-implemented'.)
+describe('elements out of route order', () => {
   it.each(['rock', 'water'] as const)(
     'rejects %s on the initial screen without starting any progression',
     (element) => {
       const game = new SliceGame();
       const before = game.snapshot();
-      expect(game.selectElement(element)).toEqual({ accepted: false, reason: 'not-implemented' });
+      expect(game.selectElement(element)).toEqual({ accepted: false, reason: 'prerequisite-not-met' });
       expect(game.snapshot()).toEqual(before);
       game.advance(TOTAL);
       expect(game.snapshot().phase).toBe('awaiting-input');
@@ -153,7 +158,7 @@ describe('unimplemented elements', () => {
     game.selectElement('fire');
     playToEnd(game);
     const completed = game.snapshot();
-    expect(game.selectElement(element)).toEqual({ accepted: false, reason: 'not-implemented' });
+    expect(game.selectElement(element)).toEqual({ accepted: false, reason: 'prerequisite-not-met' });
     expect(game.snapshot()).toEqual(completed);
   });
 });

@@ -36,6 +36,37 @@ export const FARM_WORK_MS = {
   humanHarvestsPlot: 1500,
 } as const;
 
+// Turn 3 (🪨), Turn 4 (💧) and the Epilogue Waves are also laid out in beats of the
+// 97 BPM design tempo (logical milliseconds at 1x). All values are provisional: the
+// pacing is a human play-review decision.
+export const TRUE_WAVE_BEATS = {
+  // Turn 3
+  farmMatures: 2.5,
+  workshopAppears: 2,
+  humanDivides: 1, // the split pop; SPLIT_WAVE_MS is used for the shake itself
+  humanWalksToWorkshop: 3,
+  humanGathersStone: 3,
+  humanCarriesStone: 3,
+  humanBuildsHut: 3.5,
+  furnaceLights: 2,
+  caveFurnished: 2,
+  livestockFenced: 6,
+  livestockBreeds: 2.5,
+  riverbedDug: 8,
+  // Turn 4
+  springAppears: 2.5,
+  riverFlows: 3,
+  waterCarried: 7.5,
+  villageGathers: 2.5,
+  villageBuilt: 3,
+  ecosystemFlourishes: 2,
+  shrineAppears: 2.5,
+  // Epilogue
+  epilogueGrowth: 3,
+  trueJudged: 2.5,
+  guardianTransforms: 4,
+} as const;
+
 // Upper bound on one frame's real delta so a backgrounded tab does not skip
 // the whole sequence in a single update.
 export const MAX_FRAME_DELTA_MS = 100;

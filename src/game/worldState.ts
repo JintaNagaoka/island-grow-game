@@ -1,10 +1,23 @@
-// Authoritative game state. Pure data: no Phaser, no timing, no rendering.
+// The visible world: what Presentation shows at this moment. It is revealed one
+// Wave at a time and is NOT the gameplay authority. The authoritative state is the
+// RuleState resolved synchronously at selection (see rules/engine.ts); Wave
+// completion only reveals it, and nothing here can change a gameplay outcome.
+// A test (visibleWorld.test.ts) pins what this must equal once playback ends.
 export const ELEMENTS = ['fire', 'plant', 'rock', 'water'] as const;
 export type Element = (typeof ELEMENTS)[number];
 
 // Named places a resident can be at or head for. Pixel positions belong to
 // Presentation; the game only knows which place a resident is in.
-export type ResidentPlace = 'start' | 'fire' | 'plot';
+export type ResidentPlace =
+  | 'start'
+  | 'fire'
+  | 'plot'
+  // Turn 3 / Turn 4 working places and the settlement.
+  | 'workshop'
+  | 'hut-site'
+  | 'riverbed'
+  | 'pen'
+  | 'village';
 export type ResidentMotion = 'idle' | 'walking';
 
 // One member of the population: a stable unique id plus the durable state its
@@ -16,6 +29,29 @@ export interface Resident {
   readonly target: ResidentPlace | null;
   readonly motion: ResidentMotion;
 }
+
+// Durable props revealed after Turn 2 by Turn 3 / Turn 4 / Epilogue Waves. The meaning
+// of each (dry riverbed vs flowing, empty vs filled bucket) is decided by Presentation
+// from which ids are present, never by comparing numbers.
+export const PROP_IDS = [
+  'mature-farm',
+  'stone-workshop',
+  'second-hut',
+  'practical-cave',
+  'fence',
+  'feed-area',
+  'empty-bucket',
+  'livestock-parent',
+  'livestock-child',
+  'dry-riverbed',
+  'spring-pond',
+  'flowing-riverbed',
+  'filled-bucket',
+  'village-homes',
+  'shrine',
+  'guardians',
+] as const;
+export type PropId = (typeof PROP_IDS)[number];
 
 export interface WorldState {
   readonly turn: number;
@@ -33,10 +69,15 @@ export interface WorldState {
   readonly population: number;
   readonly residents: readonly Resident[];
   readonly isCold: boolean;
+  // Props revealed so far, in reveal order, without duplicates.
+  readonly props: readonly PropId[];
 }
 
 export const FIRST_RESIDENT_ID = 'resident-1';
 export const SECOND_RESIDENT_ID = 'resident-2';
+export const THIRD_RESIDENT_ID = 'resident-3';
+// The residents that join the village in Turn 4, in id order.
+export const VILLAGE_RESIDENT_IDS = ['resident-4', 'resident-5', 'resident-6'] as const;
 
 export function createInitialWorldState(): WorldState {
   return {
@@ -50,8 +91,29 @@ export function createInitialWorldState(): WorldState {
     population: 1,
     residents: [{ id: FIRST_RESIDENT_ID, place: 'start', target: null, motion: 'idle' }],
     isCold: true,
+    props: [],
   };
 }
+
+export const revealProp = (world: WorldState, id: PropId): WorldState =>
+  world.props.includes(id) ? world : { ...world, props: [...world.props, id] };
+
+export const hasProp = (world: WorldState, id: PropId): boolean => world.props.includes(id);
+
+// Adds residents that are not yet present, all standing at `place`. Re-applying it
+// changes nothing, so a repeated reveal can never add a resident twice.
+export function addResidents(world: WorldState, ids: readonly string[], place: ResidentPlace): WorldState {
+  const fresh = ids.filter((id) => !world.residents.some((resident) => resident.id === id));
+  if (fresh.length === 0) return world;
+  const residents: readonly Resident[] = [
+    ...world.residents,
+    ...fresh.map((id): Resident => ({ id, place, target: null, motion: 'idle' })),
+  ];
+  return { ...world, population: residents.length, residents };
+}
+
+export const moveResident = (world: WorldState, id: string, place: ResidentPlace): WorldState =>
+  updateResident(world, id, { place, target: null, motion: 'idle' });
 
 const updateResident = (
   world: WorldState,

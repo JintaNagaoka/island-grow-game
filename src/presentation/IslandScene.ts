@@ -31,7 +31,16 @@ import {
   computeFarmVisual,
   computeShelterVisual,
 } from './lifeAnimation';
+import { drawCrewEffect, drawCrewObject } from './crewDraw';
 import { computeResidentVisuals, computeSplitEffect, type ResidentVisual } from './residents';
+import {
+  SETTLEMENT_SLOTS,
+  computeSettlementEffects,
+  computeSettlementProps,
+  computeVillageHomes,
+  type EffectVisual,
+} from './settlement';
+import { TRUE_PROPS, TRUE_PROP_LIST } from './trueRouteAssets';
 import {
   ANIMAL_EAT_FRAMES,
   COOK_STEAM_FRAMES,
@@ -59,6 +68,17 @@ const FONT_FAMILY = 'sans-serif';
 // open /?humanWalkPreview). Never active in production builds.
 const WALK_PREVIEW_ENABLED =
   import.meta.env.DEV && new URLSearchParams(window.location.search).has('humanWalkPreview');
+// Review-only: /?playbackSpeed=4 runs the whole route faster through the same global
+// logical-time scaling a future speed control will use. Never active in production builds.
+const DEV_PLAYBACK_SPEED = (() => {
+  if (!import.meta.env.DEV) return undefined;
+  const value = Number(new URLSearchParams(window.location.search).get('playbackSpeed'));
+  return Number.isFinite(value) && value > 0 ? value : undefined;
+})();
+// Review-only: /?paused stops the frame loop from advancing logical time and exposes the
+// game as window.__islandSlice, so a reviewer (or a browser script) can step the logical
+// clock exactly with advance(ms). Never active in production builds.
+const DEV_PAUSED = import.meta.env.DEV && new URLSearchParams(window.location.search).has('paused');
 type ButtonState = 'available' | 'selected' | 'unavailable';
 
 interface ElementButton {
@@ -73,6 +93,10 @@ interface ResidentView {
   readonly sprite: Phaser.GameObjects.Sprite;
   readonly shadow: Phaser.GameObjects.Graphics;
   readonly cold: Phaser.GameObjects.Graphics;
+  // The target object (tool or load) and the effect are their own game objects, apart
+  // from the human sprite, so a pose never carries a baked-in tool.
+  readonly object: Phaser.GameObjects.Graphics;
+  readonly effect: Phaser.GameObjects.Graphics;
 }
 
 // Fixed-camera miniature presentation. Gameplay lives entirely in SliceGame;
@@ -108,6 +132,16 @@ export class IslandScene extends Phaser.Scene {
   private residentViews = new Map<string, ResidentView>();
   private splitGlow!: Phaser.GameObjects.Graphics;
   private splitSparkles!: Phaser.GameObjects.Graphics;
+  // Turn 3 / Turn 4 / Epilogue props (provisional candidate art), one Image per slot in
+  // SETTLEMENT_SLOTS, plus the two extra homes of the village. Shown or hidden from
+  // computeSettlementProps(); none owns state.
+  private settlementImages = new Map<string, Phaser.GameObjects.Image>();
+  private villageHomes: Phaser.GameObjects.Image[] = [];
+  private effectGlow!: Phaser.GameObjects.Graphics;
+  private effectSparkles!: Phaser.GameObjects.Graphics;
+  // The END panel over the selection panel: title, Retry button.
+  private endObjects: Phaser.GameObjects.GameObject[] = [];
+  private endTitle!: Phaser.GameObjects.Text;
 
   constructor() {
     super(ISLAND_SCENE_KEY);
@@ -118,6 +152,9 @@ export class IslandScene extends Phaser.Scene {
       this.load.image(asset.textureKey, `${WORLD_ASSET_DIR}${asset.filename}`);
     }
     for (const asset of TURN2_ASSET_LIST) {
+      this.load.image(asset.textureKey, `${asset.dir}${asset.filename}`);
+    }
+    for (const asset of TRUE_PROP_LIST) {
       this.load.image(asset.textureKey, `${asset.dir}${asset.filename}`);
     }
     for (const asset of HUMAN_ASSET_LIST) {
@@ -138,7 +175,8 @@ export class IslandScene extends Phaser.Scene {
         repeat: definition.repeat,
       });
     }
-    this.slice = new SliceGame();
+    this.slice = new SliceGame({ playbackSpeed: DEV_PLAYBACK_SPEED });
+    if (DEV_PAUSED) (window as unknown as { __islandSlice?: SliceGame }).__islandSlice = this.slice;
     this.buttons = [];
     this.cameras.main.setBackgroundColor(WORLD_WATER_COLOR);
     this.createWorld();
@@ -146,12 +184,13 @@ export class IslandScene extends Phaser.Scene {
     this.splitGlow = this.add.graphics().setDepth(LAYOUT.humanWarm.y - 0.4);
     this.splitSparkles = this.add.graphics().setDepth(LAYOUT.humanWarm.y + 4);
     this.createButtons();
+    this.createEndPanel();
     this.render(this.slice.snapshot());
   }
 
   update(_time: number, delta: number): void {
     const frameDelta = Number.isFinite(delta) && delta > 0 ? Math.min(delta, MAX_FRAME_DELTA_MS) : 0;
-    this.slice.advance(frameDelta);
+    if (!DEV_PAUSED) this.slice.advance(frameDelta);
     this.render(this.slice.snapshot());
   }
 
@@ -163,7 +202,9 @@ export class IslandScene extends Phaser.Scene {
     this.renderFarmTiles(snapshot);
     this.renderCookingFire(snapshot);
     this.renderFire(snapshot);
+    this.renderSettlement(snapshot);
     this.renderButtons(snapshot);
+    this.renderEnd(snapshot);
   }
 
   // One animal, one ground point: the wild art levels up into the eating art by a
@@ -192,13 +233,18 @@ export class IslandScene extends Phaser.Scene {
       .setDepth(LAYOUT.animal.y + 0.1);
 
     // Shadow follows whichever art is mostly showing (0.71x as wide, 0.126x as tall as the sprite is wide).
+    // From Turn 3 the fenced livestock replace both and stand on their own ground.
     const eating = visual.eatAlpha >= 0.5;
-    this.drawAnimalShadow(
-      eating ? LAYOUT.animal : wildGround,
-      eating
-        ? frame.width * frame.baseScale * 0.55
-        : WORLD_ASSETS.animal.width * WORLD_ASSETS.animal.baseScale * 0.71,
-    );
+    if (visual.wildAlpha <= 0 && visual.eatAlpha <= 0) {
+      this.animalShadow.clear();
+    } else {
+      this.drawAnimalShadow(
+        eating ? LAYOUT.animal : wildGround,
+        eating
+          ? frame.width * frame.baseScale * 0.55
+          : WORLD_ASSETS.animal.width * WORLD_ASSETS.animal.baseScale * 0.71,
+      );
+    }
     this.drawLevelUp(
       this.animalGlow,
       this.animalSparkles,
@@ -207,6 +253,37 @@ export class IslandScene extends Phaser.Scene {
       visual.glow,
       visual.sparkle,
     );
+  }
+
+  // Turn 3 / Turn 4 / Epilogue: every prop slot from the visible world and the active
+  // Wave's logical progress, then the Wave's glow and sparkles.
+  private renderSettlement(snapshot: SliceSnapshot): void {
+    for (const visual of computeSettlementProps(snapshot)) {
+      this.settlementImages
+        .get(visual.slot)!
+        .setVisible(visual.alpha > 0)
+        .setAlpha(visual.alpha)
+        .setPosition(visual.ground.x, visual.ground.y)
+        .setScale(visual.asset.baseScale * visual.scale)
+        .setDepth(visual.depth);
+    }
+    computeVillageHomes(snapshot).forEach((home, index) => {
+      this.villageHomes[index]
+        .setVisible(home.alpha > 0)
+        .setAlpha(home.alpha)
+        .setPosition(home.ground.x, home.ground.y)
+        .setScale(TRUE_PROPS.secondHut.baseScale * home.scale)
+        .setDepth(home.ground.y);
+    });
+    this.drawEffects(computeSettlementEffects(snapshot));
+  }
+
+  private drawEffects(effects: readonly EffectVisual[]): void {
+    this.effectGlow.clear();
+    this.effectSparkles.clear();
+    for (const effect of effects) {
+      this.drawLevelUpShapes(this.effectGlow, this.effectSparkles, effect.ground, effect.width, effect.glow, effect.sparkle);
+    }
   }
 
   private drawAnimalShadow(ground: { x: number; y: number }, width: number): void {
@@ -229,6 +306,18 @@ export class IslandScene extends Phaser.Scene {
     glow.clear();
     sparkles.clear();
     if (sparkle === null) return;
+    this.drawLevelUpShapes(glow, sparkles, ground, width, glowStrength, sparkle);
+  }
+
+  // Draws one glow and its sparkles without clearing, so several can share a layer.
+  private drawLevelUpShapes(
+    glow: Phaser.GameObjects.Graphics,
+    sparkles: Phaser.GameObjects.Graphics,
+    ground: { x: number; y: number },
+    width: number,
+    glowStrength: number,
+    sparkle: number,
+  ): void {
     const { x, y } = ground;
     glow.fillStyle(0xfff0a0, 0.3 * glowStrength);
     glow.fillEllipse(x, y - 28, width * 1.15, width * 0.62);
@@ -341,7 +430,7 @@ export class IslandScene extends Phaser.Scene {
       const sprite = this.add
         .sprite(LAYOUT.humanStart.x, LAYOUT.humanStart.y, initial.textureKey)
         .setScale(HUMAN_SPRITE_SCALE);
-      view = { sprite, shadow, cold: this.add.graphics() };
+      view = { sprite, shadow, cold: this.add.graphics(), object: this.add.graphics(), effect: this.add.graphics() };
       this.residentViews.set(id, view);
     }
     return view;
@@ -358,12 +447,29 @@ export class IslandScene extends Phaser.Scene {
     view.sprite.setScale(pose.facing * HUMAN_SPRITE_SCALE * visual.scale, HUMAN_SPRITE_SCALE * visual.scale);
     view.sprite.setDepth(pose.y + 2);
     this.renderHumanCold(view.cold, pose);
+    this.renderCrewLayers(view, visual, pose.y);
 
     const shadowScale = (1 - Math.min(0.32, pose.lift / 28)) * visual.scale;
     view.shadow.clear();
     view.shadow.fillStyle(0x183321, 0.28 * shadowScale * alpha);
     view.shadow.fillEllipse(x, pose.y + 2, 34 * shadowScale, 8 * shadowScale);
     view.shadow.setDepth(pose.y);
+  }
+
+  // The object and effect layers of a working resident, drawn as small provisional
+  // shapes in design pixels. Nothing here selects a pose or changes game state.
+  private renderCrewLayers(view: ResidentView, visual: ResidentVisual, groundY: number): void {
+    const { object, effect } = visual.layers ?? { object: null, effect: null };
+    view.object.clear().setVisible(object !== null && visual.alpha > 0);
+    view.effect.clear().setVisible(effect !== null && visual.alpha > 0);
+    if (object !== null) {
+      drawCrewObject(view.object, object);
+      view.object.setDepth(groundY + 2.5);
+    }
+    if (effect !== null) {
+      drawCrewEffect(view.effect, effect);
+      view.effect.setDepth(groundY + 3.5);
+    }
   }
 
   // Walk poses play the per-direction Phaser animation; planHumanAnimation()
@@ -586,5 +692,78 @@ export class IslandScene extends Phaser.Scene {
       .setDepth(LAYOUT.fire.y + 1)
       .setVisible(false);
     this.fireSparks = this.add.graphics().setDepth(LAYOUT.fire.y + 1.5);
+    this.createSettlement();
+  }
+
+  // Image per prop slot, in a fixed order, on its ground anchor (hidden until revealed).
+  private createSettlement(): void {
+    this.settlementImages = new Map();
+    for (const slot of SETTLEMENT_SLOTS) {
+      const asset = TRUE_PROPS[slot];
+      const origin = groundOrigin(asset);
+      this.settlementImages.set(slot, this.add.image(0, 0, asset.textureKey).setOrigin(origin.x, origin.y).setVisible(false));
+    }
+    // The village's third and fourth homes reuse the second hut's candidate art.
+    const hut = TRUE_PROPS.secondHut;
+    const hutOrigin = groundOrigin(hut);
+    this.villageHomes = LAYOUT.true.homes.map(() =>
+      this.add.image(0, 0, hut.textureKey).setOrigin(hutOrigin.x, hutOrigin.y).setVisible(false),
+    );
+    this.effectGlow = this.add.graphics().setDepth(1400);
+    this.effectSparkles = this.add.graphics().setDepth(1401);
+  }
+
+  // END: the selection panel gives way to the ending title and a Retry button.
+  // Retry resets the authoritative game and rebuilds every presentation object by
+  // restarting the Scene, so nothing from the finished run can linger.
+  private createEndPanel(): void {
+    const panelHeight = DESIGN_HEIGHT - LAYOUT.ui.panelTop;
+    const backdrop = this.add
+      .rectangle(0, LAYOUT.ui.panelTop, DESIGN_WIDTH, panelHeight, 0x111b24)
+      .setOrigin(0, 0)
+      .setDepth(2010);
+    this.endTitle = this.add
+      .text(DESIGN_WIDTH / 2, LAYOUT.ui.panelTop + 46, 'END', {
+        fontFamily: FONT_FAMILY,
+        fontSize: '46px',
+        fontStyle: 'bold',
+        color: '#ffe27a',
+      })
+      .setOrigin(0.5)
+      .setDepth(2011);
+    const width = 300;
+    const height = 76;
+    const cx = DESIGN_WIDTH / 2;
+    const cy = LAYOUT.ui.panelTop + 140;
+    const button = this.add.graphics().setDepth(2011);
+    button.fillStyle(0xb95624, 1);
+    button.fillRoundedRect(cx - width / 2, cy - height / 2, width, height, 20);
+    button.lineStyle(4, 0xffd18a, 1);
+    button.strokeRoundedRect(cx - width / 2, cy - height / 2, width, height, 20);
+    const label = this.add
+      .text(cx, cy, '↻ Retry', { fontFamily: FONT_FAMILY, fontSize: '38px', fontStyle: 'bold', color: '#fff3dc' })
+      .setOrigin(0.5)
+      .setDepth(2012);
+    const zone = this.add
+      .zone(cx, cy, width, height)
+      .setInteractive()
+      .setDepth(2013)
+      .on('pointerdown', () => {
+        // Only an ended game can be retried; SliceGame.retry() refuses otherwise.
+        if (this.slice.retry()) this.scene.restart();
+      });
+    this.endObjects = [backdrop, this.endTitle, button, label, zone];
+    this.endObjects.forEach((object) => (object as Phaser.GameObjects.GameObject & { setVisible(v: boolean): unknown }).setVisible(false));
+  }
+
+  private renderEnd(snapshot: SliceSnapshot): void {
+    const ended = snapshot.phase === 'ended';
+    for (const object of this.endObjects) {
+      (object as Phaser.GameObjects.GameObject & { setVisible(v: boolean): unknown }).setVisible(ended);
+    }
+    if (ended) {
+      const kind = snapshot.ending?.kind;
+      this.endTitle.setText(kind === 'true' ? 'TRUE END' : kind === 'secret' ? 'SECRET END' : 'END');
+    }
   }
 }

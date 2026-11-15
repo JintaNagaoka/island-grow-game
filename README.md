@@ -58,6 +58,36 @@ Turn 1 が完了すると 🌱 だけが選べるようになります（Turn 1 
 
 間・歩行の可愛さ・演出の長さ・画面余白などの体感は自動テストでは判定できません。人間によるプレイレビューで確認してください。
 
+### Turn 3（🪨）・Turn 4（💧）・Epilogue・END・Retry のプレイ確認（TRUE 代表ルート）
+
+Turn 2 が完了すると 🪨、続いて 💧 だけが選べます（レビュー用ビルドで遊べるのは 🔥 → 🌱 → 🪨 → 💧 の 1 ルートだけです。順序違いの選択は `prerequisite-not-met` で拒否されます）。全 24 順列の**ルール評価**は `src/game/rules/engine.test.ts` が検証します（画面で遊べるのは TRUE ルートだけです）。
+
+**権威状態と演出の分離。** 要素を受理した瞬間に Rule Engine（`src/game/rules/`）がそのターンを同期的に確定します（Direct Effect → Time Progression / Interaction を不動点まで。同じ Rule ID は 1 ターン 1 回。最終ターンだけ Epilogue Growth を 1 回、続けて SECRET → TRUE → 通常 END の順に判定）。確定した `RuleState`（`SliceSnapshot.resolved`）は Wave の再生中も、アニメーションの完了にも、再生速度にも影響されません。Wave は確定済みの結果を画面（`SliceSnapshot.world`、見える世界）へ一つずつ見せるだけで、`RuleState` を読み書きできません。各 Wave（Turn 3 以降）は、提示する Rule Event の ID（`Wave.event`）を持ち、Rule Engine がそのイベントを出したときだけ、確定した順序で再生されます。
+
+| ターン | Stage（火/植物/石/水/人/住居/動物/洞窟） | 主な見え方 |
+| --- | --- | --- |
+| 初期 | `0/0/0/0/1/1/1/1` | |
+| Turn 1 🔥 | `2/0/0/0/1/1/1/1` | 既存どおり |
+| Turn 2 🌱 | `3/2/0/0/2/2/2/1` | 既存どおり |
+| Turn 3 🪨 | `5/4/4/0/3/3/3/3` | 成熟した畑、石の作業台、3 人目、2 棟目の家、実用的な洞窟、柵・飼料・**空の**水桶・乾いた川床、家畜の親子。水・流れなし |
+| Turn 4 💧 | `5/5/4/3/4/4/3/4` | 高台の泉と池、同じ川床が南西の海へ流れる、運ばれた**水入り**の桶、4 軒の家と 6 人、祠。動物の囲いへ直接つながる水路なし |
+| Epilogue（TRUE） | `5/5/4/3/4/4/4/4` | 成長 1 回 → TRUE 判定 → 家畜の親子が守り神の親子へ変身 → END |
+
+TRUE の条件は、厳密な順序 🔥→🌱→🪨→💧、SECRET 不成立、動物 Stage 3、他の 7 カテゴリが最大、動物が絶滅していないことです。動物が Stage 4 になるのは TRUE が成立した**後**だけです。END（`TRUE END`）では選択パネルが Retry ボタンに置き換わり、押すと権威状態・見える世界・論理クロック・入力履歴・Scene のオブジェクトがすべて初期状態に戻ります（Scene を再起動します。再生速度の設定は保たれます）。
+
+**SECRET の因果連鎖（Notion §14.7〜14.9）。** 順序そのものではなく状態で判定します。洞窟の入口は最初から開いていて、岩が覆うのは脇の細い裂け目（`crackState = covered`）です。寒いうえに植物がまだ無い状態で 🪨 を選ぶと、探索で裂け目が `exposed` になります（植物があれば洞窟は貯蔵などに使われ、岩は動きません。🔥 が先なら寒くないので動きません）。植物を選んだ時点の裂け目の状態から、根の向き（`rootDirection`）が一度だけ `lateral` か `intoRuins` に決まり、以後は変わりません。裂け目が露出したまま、植物が選ばれたターンのうちに作業場が立つと `blockedByWorkshop` になり、根は `lateral` になります（🪨→🔥→🌱 の経路）。遺跡の露出（`ruinsExposed`）には `intoRuins` の根が育つこと、古代装置（`ancientDeviceActivated`）には露出した遺跡と灯った火が要ります（🪨→🌱→🔥。💧 が間に入っても連鎖は崩れません）。🔥→🌱→🪨 の TRUE の前半では岩は動かず、洞窟は貯蔵・共同体・祠に使われます。END 軸の分類だけが相対順序を使い、Rule は使いません。
+
+**動物の絶滅は未実装です。** Notion が絶滅の閾値を「未確定」としているため、`animalExtinct` を立てる Rule はありません（Flag と、それを読む TRUE 判定のガードだけがあります）。テストも絶滅への遷移を検証しているとは主張せず、「どの順列でも立たない」現状を記録するだけです。確定したら Rule と遷移テストを一緒に追加します。
+
+レビュー用の補助（開発サーバーでのみ有効。本番ビルドでは無効）: `/?playbackSpeed=4` で全体を 4 倍速（将来のグローバル再生速度と同じ論理時間の拡縮）で再生、`/?paused` でフレームループによる時間の進行を止め、`window.__islandSlice.advance(ms)` / `.selectElement('rock')` で論理時間を厳密に進めて確認できます。
+
+**素材はすべて「候補（provisional）」で、人間の視覚承認を受けていません。** 供給パッケージ `true-route-materials-v3` から、実際に使う 16 枚だけを byte 単位でそのまま取り込みました（`public/assets/world/turn3/`・`turn4/`。SHA-256 は `src/presentation/trueRouteAssets.test.ts` で固定し、供給元のマニフェストは `art-source/true-route/TRUE_ASSET_MANIFEST.md`）。取り込まなかったもの: 人の作業フレーム（gather / build / carry / dig / water-carry の 10 枚と 2 フレームの `animation.json`）は、人・道具・運ぶ物が 1 枚の PNG に焼き込まれており、Notion の「人／対象物／エフェクトを別レイヤーにする」要件を満たせないため、実行時には登録・配信せず `art-source/true-route/human-action-candidates/` に置いたままです。実行時の 3 人目以降は、承認済みの人スプライト（立ち絵と 4 方向の歩行）に、**別の Graphics オブジェクト**として描く道具・運ぶ物（石・石ブロック・スコップ・木槌・バケツ）と、エフェクト（砂ぼこり・破片・土・水しぶき）を重ねます（`src/presentation/crew.ts` のレイヤー記録と `crewDraw.ts` のコード描画。いずれも仮の形で、最終アートではありません）。プロトタイプの `trueRoute.ts` と `trueRoute.test.ts` も取り込んでいません（参考資料であり、実行時の権威にはしません）。
+
+- 住居: 承認済みの小屋 + 候補の `hut-second.png` の 3 インスタンス（3・4 軒目は 0.8 倍）。
+- 守り神: `guardian-parent` / `guardian-child` は家畜の親子と同じスケール・同じ接地点で入れ替わります（淡い光の縁が見えるため、実機での縁の色を要確認）。
+- 川と泉: 乾いた川床と流れる川床は同一の位置・形で重なり（テストで中心線の一致を確認）、泉の出口は川の源流へ導出した座標で接続します。池画像は左下の端まで描かれているため、トリミングせずスケールで収めています。
+- 歩行・作業: 作業は 3 人目の小人が行います（石を集める → 運ぶ → 家を建てる → 柵を作る → 川床を掘る → 泉から水を運ぶ）。before（立つ）→ work（2 フレームのループ、論理クロック）→ after（立つ）の順で、移動は承認済みの歩行速度の約 0.5〜0.9 倍です。
+
 ## Cloudflare Pages でのスマホ Human Review
 
 主な Human Review 環境はスマートフォンです。Human Review は、Cloudflare Pages のプレビュー URL を**実機のスマホで開いて**行います（PC のブラウザや自動テストの結果で代用しません）。このリポジトリには Cloudflare 用の設定ファイルも Wrangler 依存もありません。下記は、push していないローカルの変更を確認するための Direct Upload の手順です。
@@ -228,17 +258,22 @@ sips -s format png asset-source/initial-turn1/campfire_frame_b_1254.jpg --out as
 - `src/main.ts`: Phaser の起動設定
 - `src/game/`: Phaser に依存しない純粋な TypeScript の WorldState と Game Logic。
   - `worldState.ts`: `WorldState`（`plantStage`・`shelterStage`・`animalStage`、`fireStage` の 2 を含む）と初期状態、意味判定 `hasSproutPlot`（Turn 2 の芽の畑。拡張した畑を含む）/ `hasUpgradedHut` / `hasCookingFire` / `hasCaredForAnimal`
-  - `waves.ts`: Wave の定義（Turn 1 の `FIRE_WARMING_WAVES`、Turn 2 の `PLANT_LIFE_WAVES`。順序と、各 Wave 完了時の WorldState 変更）
+  - `waves.ts`: Wave の定義（Turn 1 の `FIRE_WARMING_WAVES`、Turn 2 の `PLANT_LIFE_WAVES`、Turn 3 の `ROCK_WAVES`、Turn 4 + Epilogue の `WATER_WAVES`。順序と、各 Wave 完了時の「見える世界」の更新。ゲームの結果は変えません）
+  - `rules/`: 権威状態と因果ルール。`state.ts`（8 カテゴリの Stage・上限・Flag・`RuleState`・不変条件の検証。SECRET の連鎖は多値の `crackState`（`covered` / `exposed` / `blockedByWorkshop`）と不可逆の `rootDirection`（`undecided` / `lateral` / `intoRuins`）、Flag の `ruinsExposed` / `ancientDeviceActivated`）、`catalog.ts`（共通の Rule 一覧。Direct Effect と Time Progression / Interaction。順列ごとの分岐や END 名、選択順を読む Rule はありません）、`engine.ts`（`runTurn`、Epilogue Growth、SECRET → TRUE → 通常 END の判定、END 軸の分類、24 順列のテスト用 `playRoute`）
   - `timing.ts`: 再生時間と再生速度の唯一の境界。Wave の長さは再生速度 1x の論理ミリ秒で、将来の一括再生速度変更はここを通ります。
-  - `sliceGame.ts`: 入力ガード（🌱 は Turn 1 完了後に一度だけ）、Wave 再生中の入力ロック、論理クロックによる Wave の順次再生、選択可能な要素 `selectableElements`
+  - `sliceGame.ts`: 入力ガード（🔥 → 🌱 → 🪨 → 💧 の順に一度ずつ）、選択時の `runTurn` による同期確定、Wave 再生中の入力ロック、論理クロックによる Wave の順次再生、選択可能な要素 `selectableElements`、END 後の `retry()`
 - `src/presentation/`: Phaser に依存するコード（Scene など）。画面比率・サイズ依存の値は `display.ts` と `layout.ts` に集約しています。
   - `IslandScene.ts`: 入力を `SliceGame` に渡し、`SliceGame.snapshot()` から毎フレーム描画するだけの Scene
   - `animation.ts`: スナップショットから小人・火・動物のidleの見た目を計算する純粋関数（Phaser 非依存）
   - `worldAssets.ts`: 島・雨よけ・動物・焚き火 2 フレームの PNG のメタデータ（キー、ファイル名、サイズ、接地点、スケール、配置）
   - `turn2Assets.ts`: Turn 2 の PNG（畑 3 フレーム・動物 2 フレーム・鍋 2 フレーム・小屋）のメタデータとアニメーション契約
   - `residents.ts`: `WorldState.residents` と論理クロックから、各小人（Turn 2 の分裂演出を含む）の見た目を計算する純粋関数（Phaser 非依存）
+  - `trueRouteAssets.ts`: Turn 3 / Turn 4 / Epilogue の候補 PNG（小道具 16 点と、2 フレームずつの作業 5 種）のメタデータ（すべて provisional）
+  - `settlement.ts`: スナップショットから Turn 3 以降の小道具（川床・泉・柵・家・祠・守り神など）と光の見た目を計算する純粋関数（Phaser 非依存）
+  - `crew.ts`: 3〜6 人目の位置・移動・作業（before → work → after）・登場演出を、人（承認済みスプライト）・対象物・エフェクトの別レイヤー記録として計算する純粋関数（Phaser 非依存）。`crewDraw.ts`: 対象物とエフェクトの仮のコード描画
   - `lifeAnimation.ts`: スナップショットから Turn 2 の畑・小屋／調理の火／動物のレベルアップの見た目を計算する純粋関数（Phaser 非依存。共通のレベルアップ演出 `levelUpBlend` は `animation.ts`）
 - `scripts/`: ランタイム世界 PNG を元素材から再生成する Node スクリプト（`deriveWorldAssets.mjs`、小屋用の `deriveHutAsset.mjs`、畑用の `deriveFarmPlotAsset.mjs`）
+- `art-source/true-route/`: 供給された TRUE ルート候補素材のマニフェスト（出典の記録。素材は未承認）
 - `art-source/turn2/`: 承認済み小屋 JPEG の正本とその可逆 PNG 変換、Turn 2 の Visual Reference
 
 依存方向は `src/game/`（WorldState / Game Logic / Wave）→ `src/presentation/`（Phaser）です。`phaser` を import するのは `src/main.ts` と `src/presentation/` の Scene に限り、`src/game/` からは `src/presentation/` を import しません。Phaser のアニメーション完了は状態の成立条件にしておらず、tween やタイマーも使っていません。

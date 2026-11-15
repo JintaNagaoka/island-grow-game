@@ -4,6 +4,7 @@ import { hasCaredForAnimal, hasCookingFire, hasSproutPlot, hasUpgradedHut } from
 import { clamp01, easeOutBack, levelUpBlend, stillPose, walkingPose, type HumanPose } from './animation';
 import { walkRoute } from './humanWalk';
 import { LAYOUT } from './layout';
+import { eatingAnimalRetirement, farmTileRetirement } from './settlement';
 import {
   ANIMAL_EAT_FRAMES,
   COOK_STEAM_FRAMES,
@@ -101,7 +102,9 @@ export function computeFarmTiles(snapshot: SliceSnapshot): readonly FarmTileVisu
   }
   // The Wave has completed: the Turn 2 sprout plot (the expanded farm) exists for good.
   const expanded = hasSproutPlot(snapshot.world);
-  return LAYOUT.farmPlotTiles.map(() => ({ alpha: expanded ? 1 : 0, scale: 1 }));
+  // From Turn 3 the mature farm takes the standalone tiles' place (settlement.ts).
+  const keep = farmTileRetirement(snapshot);
+  return LAYOUT.farmPlotTiles.map(() => ({ alpha: expanded ? keep : 0, scale: 1 }));
 }
 
 export interface ShelterVisual {
@@ -199,11 +202,13 @@ export function computeAnimalVisual(snapshot: SliceSnapshot): AnimalVisual {
     };
   }
   const caredFor = hasCaredForAnimal(snapshot.world);
+  // From Turn 3 the fenced livestock take the eating animal's place (settlement.ts).
+  const keep = eatingAnimalRetirement(snapshot);
   return {
     ...base,
     wildAlpha: caredFor ? 0 : 1,
     wildScale: 1,
-    eatAlpha: caredFor ? 1 : 0,
+    eatAlpha: caredFor ? keep : 0,
     eatScale: 1,
     glow: 0,
     sparkle: null,

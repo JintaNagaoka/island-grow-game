@@ -11,6 +11,7 @@ import {
   FARM_WATER_HUMAN_FEET,
   HUT_ASSET,
 } from './turn2Assets';
+import { RIVER_SOURCE_PX, TRUE_PROPS } from './trueRouteAssets';
 import { FIRE_ASSET, WORLD_ASSETS, type WorldAsset } from './worldAssets';
 
 // All layout is expressed as ratios of the 9:16 design resolution so aspect
@@ -81,6 +82,50 @@ const FARM_PLOT_TILES: readonly Point[] = (() => {
   }));
 })();
 
+const at = (px: number, py: number): Point => ({ x: px, y: py });
+const lerp = (a: Point, b: Point, t: number): Point => ({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t });
+
+// Turn 3 / Turn 4 / Epilogue placements, in design pixels (all provisional: the
+// candidate art and its arrangement await human review). The riverbed runs from the
+// spring uphill to the ocean at the south-west; the spring pond's outlet is derived
+// from the riverbed so the two can never drift apart, and neither touches the animal pen.
+const RIVER_MOUTH = at(88, 546);
+const RIVER_SCALE = TRUE_PROPS.dryRiverbed.baseScale;
+const RIVER_SOURCE = at(
+  RIVER_MOUTH.x + (RIVER_SOURCE_PX.x - TRUE_PROPS.dryRiverbed.groundAnchor.x) * RIVER_SCALE,
+  RIVER_MOUTH.y + (RIVER_SOURCE_PX.y - TRUE_PROPS.dryRiverbed.groundAnchor.y) * RIVER_SCALE,
+);
+const PEN = at(500, 506);
+const TRUE_SPOTS = {
+  riverMouth: RIVER_MOUTH,
+  riverSource: RIVER_SOURCE,
+  // The pond is anchored at its outlet stream, which is the riverbed's source.
+  spring: RIVER_SOURCE,
+  // Where the resident stands to take water from the pond.
+  springBank: at(RIVER_SOURCE.x + 18, RIVER_SOURCE.y + 22),
+  // Mid-riverbed, where the channel is dug.
+  digSite: lerp(RIVER_MOUTH, RIVER_SOURCE, 0.55),
+  farm: at(322, 518),
+  workshop: at(452, 642),
+  secondHut: at(548, 702),
+  // Where the resident stands to build it (just right of it).
+  hutSite: at(478, 718),
+  // Where the resident stands to work the stone at the workshop (just left of it).
+  workshopStand: at(414, 656),
+  cave: at(378, 172),
+  pen: PEN,
+  // The fence ring's centre is about 43 design px above its ground point.
+  parent: at(PEN.x - 22, PEN.y - 26),
+  child: at(PEN.x + 26, PEN.y - 16),
+  // Just behind the fence ring, on the grass above it.
+  feed: at(PEN.x + 24, PEN.y - 88),
+  basin: at(PEN.x - 30, PEN.y + 38),
+  // Where the resident stands to build the fence and to pour water into the basin.
+  penGate: at(PEN.x - 74, PEN.y + 42),
+  homes: [at(452, 742), at(596, 754)] as readonly Point[],
+  villageResidents: [at(526, 770), at(556, 786), at(500, 792)] as readonly Point[],
+} as const;
+
 const islandRect = (left: number, top: number, right: number, bottom: number) => {
   const a = onIsland(left, top);
   const b = onIsland(right, bottom);
@@ -139,6 +184,7 @@ export const LAYOUT = {
     { id: 'central', ...islandRect(400, 700, 540, 860) },
     { id: 'front', ...islandRect(260, 1030, 460, 1100) },
   ],
+  true: TRUE_SPOTS,
   // Bottom: four-icon selection UI.
   ui: {
     panelTop: y(0.84),
