@@ -90,13 +90,15 @@ TRUE の条件は、厳密な順序 🔥→🌱→🪨→💧、SECRET 不成立
 
 ## Cloudflare Pages でのスマホ Human Review
 
-主な Human Review 環境はスマートフォンです。Human Review は、Cloudflare Pages のプレビュー URL を**実機のスマホで開いて**行います（PC のブラウザや自動テストの結果で代用しません）。このリポジトリには Cloudflare 用の設定ファイルも Wrangler 依存もありません。下記は、push していないローカルの変更を確認するための Direct Upload の手順です。
+主な Human Review 環境はスマートフォンです。標準手順、Cloudflare Git連携、実機チェックリスト、証跡とフィードバックの書式は [`HUMAN_REVIEW.md`](HUMAN_REVIEW.md) を参照してください。PC のブラウザや自動テストの結果は、実機での視覚・動作・ゲームフィール判断の代用にはなりません。
+
+標準フローは、Codexの独立diffレビューと全検証を終えたcommitをpushし、PRのCloudflare Pages checkが成功してから、deployment固有URLと安定したBranch Preview URLを記録して実機確認する形です。Direct Upload / WranglerはGit連携が利用できない場合だけのフォールバックです。
 
 公式ドキュメント:
 - Direct Upload: <https://developers.cloudflare.com/pages/get-started/direct-upload/>
 - Preview Deployments: <https://developers.cloudflare.com/pages/configuration/preview-deployments/>
 
-### 1. 事前確認（クリーンな Node 22 環境）
+### Direct Upload fallback: 事前確認（クリーンな Node 22 環境）
 
 ```sh
 nvm use
@@ -108,13 +110,13 @@ npm run build
 
 すべて成功したことを確認してから、生成された `dist/` をアップロードします。`dist/` に秘密情報やローカル設定（`.env` など）を置いてはいけません。
 
-### 2. ダッシュボードからのアップロード（現行の公式ドキュメントの手順）
+### Direct Upload fallback: ダッシュボードからのアップロード
 
 1. Cloudflare ダッシュボードで Workers & Pages → Create application → Get started → Drag and drop your files を選びます。
 2. プロジェクト名を決め（任意の名前。ここでは `<PROJECT_NAME>` と書きます）、`dist/` フォルダ（または zip）をアップロードして Deploy します。
 3. 既存の Direct Upload プロジェクトに追加する場合は、Create a new deployment を選び、環境に **Preview** を選んで、ブランチ名に `ai-issue-12-human-split` などのラベルを指定します。
 
-### 3. Wrangler を使う場合（`package.json` には追加しません）
+### Wrangler fallback（`package.json` には追加しません）
 
 ```sh
 npx wrangler login
@@ -123,23 +125,11 @@ npx wrangler pages deploy dist --project-name=<PROJECT_NAME> --branch=ai-issue-1
 
 本番ブランチ以外の名前を `--branch` に指定すると、そのブランチ用のプレビューのエイリアスが作成／更新されるだけで、本番（production）は置き換わりません。`<PROJECT_NAME>` は自分の Pages プロジェクト名に読み替えます。API トークンやアカウント ID は README・Issue・PR・コミットに書かないでください。
 
-### 4. 注意
+### 注意
 
 - 最初に Direct Upload で作ったプロジェクトは、後から Git 連携に切り替えられません。ブランチ／PR ごとの自動プレビューを長期的に使いたい場合は、Git 連携の別プロジェクトを新しく作ります。
 - プレビュー URL は、Cloudflare Access を有効にしない限り、既定で公開です。URL の取り扱いに注意してください。
 - レビューの証跡として、プレビュー URL と、確認したコミット／worktree の識別情報を Issue / PR のレビュー記録に残します。
-
-### 5. 実機スマホでの Human Review チェックリスト
-
-- [ ] 縦向き 360x640 相当と、より縦長の 390x844 前後の両方で、切れ・余白・セーフエリア・UI（🔥 / 🌱 / 🪨 / 💧 のタップ領域の大きさ）・縦横の向きのレイアウトに問題がない
-- [ ] Turn 1 は小人がちょうど 1 人で、これまでと変わらない
-- [ ] 🌱 の受理時、火の前で分裂が**レベルアップとして**はっきり読める。分裂の間、2 人とも Turn 1 完了時の位置に留まり、ジャンプ／瞬間移動がない
-- [ ] 小人 1 は火の前に留まり、小人 2 はポンッの**後にだけ**承認済みの経路を歩き始める。片方が止まってももう片方に影響しない
-- [ ] 歩行フレーム・足元の基準点・大きさが安定し、経路は島の上にある
-- [ ] 連打やリロードを繰り返しても 3 人目が現れない
-- [ ] Turn 2 の完了後も 2 人が維持される（将来の Turn 3 のため）
-- [ ] 承認済みの値（分裂の 600 ms、震え 2.5 px / 9 Hz、ポップ 0.6 倍）が実機で維持されていることを確認する（値を変える場合は再承認が必要です。自動テストはゲームフィールを承認しません）
-- [ ] ブラウザのコンソールにエラーがない。任意で、プレビューのレスポンスに `x-robots-tag: noindex` が付いていることを確認する
 
 ## World asset derivation（初期状態 / Turn 1 の世界素材）
 
