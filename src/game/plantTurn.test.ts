@@ -60,8 +60,8 @@ describe('Turn 2 availability', () => {
     const game = afterTurn1();
     expect(game.snapshot().phase).toBe('completed');
     expect(game.snapshot().selectableElements).toEqual(['plant']);
-    expect(game.selectElement('rock')).toEqual({ accepted: false, reason: 'not-implemented' });
-    expect(game.selectElement('water')).toEqual({ accepted: false, reason: 'not-implemented' });
+    expect(game.selectElement('rock')).toEqual({ accepted: false, reason: 'prerequisite-not-met' });
+    expect(game.selectElement('water')).toEqual({ accepted: false, reason: 'prerequisite-not-met' });
     expect(game.selectElement('fire')).toEqual({ accepted: false, reason: 'already-selected' });
     expect(game.snapshot().world.selectedElements).toEqual(['fire']);
   });
@@ -122,7 +122,8 @@ describe('Turn 2 completion', () => {
       turn: 0,
       selectedElements: ['fire', 'plant'],
       fireStage: 2,
-      plantStage: 1,
+      // Turn 2 raises the plant twice (plant-introduced, plant-tended): saplings are visible.
+      plantStage: 2,
       shelterStage: 2,
       animalStage: 2,
       humanStage: 2,
@@ -132,15 +133,16 @@ describe('Turn 2 completion', () => {
         { id: 'resident-2', place: 'plot', target: null, motion: 'idle' },
       ],
       isCold: false,
+      props: [],
     });
     expect(hasSproutPlot(snapshot.world)).toBe(true);
     expect(hasUpgradedHut(snapshot.world)).toBe(true);
     expect(hasCookingFire(snapshot.world)).toBe(true);
     expect(hasCaredForAnimal(snapshot.world)).toBe(true);
-    // The population has split to two residents; WorldState has no animal-count, fence, pond or shrine field to change.
+    // The population has split to two residents; no Turn 3/4 prop (fence, pond, shrine...) has been revealed.
     expect(snapshot.world.population).toBe(2);
     expect(Object.keys(snapshot.world).sort()).toEqual(
-      ['animalStage', 'fireStage', 'humanStage', 'isCold', 'plantStage', 'population', 'residents', 'selectedElements', 'shelterStage', 'turn'],
+      ['animalStage', 'fireStage', 'humanStage', 'isCold', 'plantStage', 'population', 'props', 'residents', 'selectedElements', 'shelterStage', 'turn'],
     );
   });
 
@@ -148,11 +150,11 @@ describe('Turn 2 completion', () => {
     const game = inTurn2();
     game.advance(TURN2_MS);
     const completed = game.snapshot();
-    expect(completed.selectableElements).toEqual([]);
+    // Turn 3 (🪨) opens once Turn 2 has completed; water still needs rock first.
+    expect(completed.selectableElements).toEqual(['rock']);
     expect(game.selectElement('plant')).toEqual({ accepted: false, reason: 'already-selected' });
     expect(game.selectElement('fire')).toEqual({ accepted: false, reason: 'already-selected' });
-    expect(game.selectElement('rock')).toEqual({ accepted: false, reason: 'not-implemented' });
-    expect(game.selectElement('water')).toEqual({ accepted: false, reason: 'not-implemented' });
+    expect(game.selectElement('water')).toEqual({ accepted: false, reason: 'prerequisite-not-met' });
     expect(game.snapshot()).toEqual(completed);
     game.advance(100_000);
     expect(game.snapshot().world).toEqual(completed.world);
@@ -180,11 +182,11 @@ describe('Turn 2 completion', () => {
       ...base,
       residents: [first, { ...second, place: 'plot', target: null, motion: 'idle' }],
     });
-    // The sprout plot is established when the water Wave completes; the farm has expanded when its Wave completes.
-    // plantStage stays 0 through the walk, water1 and harvest2; it becomes 1 only when farm-expands completes.
+    // The plant plot is revealed when the farm-expands Wave completes (sprouts, then saplings).
+    // plantStage stays 0 through the walk, water1 and harvest2; it becomes 2 only when farm-expands completes.
     expect(effects.get('human-waters-plot')).toEqual(base);
     expect(effects.get('human-harvests-plot')).toEqual(base);
-    expect(effects.get('farm-expands')).toEqual({ ...base, plantStage: 1 });
+    expect(effects.get('farm-expands')).toEqual({ ...base, plantStage: 2 });
     expect(effects.get('shelter-levels-up')).toEqual({ ...base, shelterStage: 2 });
     // The fire levels up from 1 to 2 (the same fire, not a second one).
     expect(effects.get('cooking-starts')).toEqual({ ...base, fireStage: 2 });
@@ -215,14 +217,14 @@ describe('Turn 2 completion', () => {
     game.advance(1);
     expect(game.snapshot().activeWave?.id).toBe('farm-expands');
 
-    // ...and through the whole active farm-expands Wave; it becomes 1 exactly when that Wave completes.
+    // ...and through the whole active farm-expands Wave; it becomes 2 exactly when that Wave completes.
     game.advance(expand - 1);
     expect(game.snapshot().activeWave?.id).toBe('farm-expands');
     expect(world().plantStage).toBe(0);
     expect(hasSproutPlot(world())).toBe(false);
     game.advance(1);
     expect(game.snapshot().activeWave?.id).toBe('shelter-levels-up');
-    expect(world().plantStage).toBe(1);
+    expect(world().plantStage).toBe(2);
     expect(hasSproutPlot(world())).toBe(true);
     expect(hasUpgradedHut(world())).toBe(false);
 
@@ -437,7 +439,7 @@ describe('Turn 2 logical clock', () => {
     }
   });
 
-  it('establishes the plant state once: plantStage only ever goes 0, then 1 (at farm-expands), never 2', () => {
+  it('establishes the plant state once: the revealed plantStage only ever goes 0, then 2 (at farm-expands), never beyond in Turn 2', () => {
     const game = inTurn2();
     const seen: number[] = [];
     for (let t = 0; t < TURN2_MS + 200; t += 7) {
@@ -445,7 +447,7 @@ describe('Turn 2 logical clock', () => {
       if (seen[seen.length - 1] !== stage) seen.push(stage);
       game.advance(7);
     }
-    expect(seen).toEqual([0, 1]);
+    expect(seen).toEqual([0, 2]);
     expect(game.snapshot().completedWaves.filter((id) => id === 'farm-expands')).toHaveLength(1);
   });
 
@@ -472,9 +474,11 @@ describe('game logic stays independent of presentation', () => {
     }
   });
 
-  it('has the Scene touch the game only through selectElement, advance and snapshot', () => {
+  // retry() joined the list with the END screen (Issue #24): it is a player input like
+  // selectElement, accepted only at the END and resetting the game as a whole.
+  it('has the Scene touch the game only through selectElement, retry, advance and snapshot', () => {
     const source = readFileSync(new URL('IslandScene.ts', presentationDir), 'utf8');
     const calls = [...source.matchAll(/this\.slice\.(\w+)/g)].map((match) => match[1]);
-    expect(new Set(calls)).toEqual(new Set(['advance', 'snapshot', 'selectElement']));
+    expect(new Set(calls)).toEqual(new Set(['advance', 'snapshot', 'selectElement', 'retry']));
   });
 });

@@ -65,7 +65,8 @@ For implementation work, use this sequence:
 4. Claude Code implements the change and reports the required evidence below.
 5. Codex reviews the Issue, authoritative specification, Claude Code report, changed-file list, actual diff, and test results.
 6. Codex independently runs or verifies the appropriate tests. Failed, inconsistent, or insufficient evidence returns to Claude Code for correction.
-7. Codex declares READY only when all applicable readiness conditions are satisfied. Human-only judgments remain explicitly pending until a human completes them.
+7. For changes requiring visual, animation, game-feel or mobile-layout judgment, push the reviewed commit and follow `HUMAN_REVIEW.md` using the Cloudflare Pages branch preview on a real smartphone.
+8. Codex declares READY only when all applicable readiness conditions are satisfied. Human-only judgments remain explicitly pending until a human completes them.
 
 Codex must always inspect the actual diff before declaring READY. Summaries and reported test results are evidence, not substitutes for independent review.
 
@@ -98,6 +99,8 @@ Codex may declare a change READY only when all applicable conditions are met:
 - required human review for game feel, visuals, animation, playtesting, or architecture is complete
 
 Do not claim that an automated test validates game feel or visual quality. Record those as human verification steps.
+
+The standard deployment, smartphone pass and evidence format are defined in `HUMAN_REVIEW.md`. The human decision must identify the exact commit and preview deployment that was reviewed.
 
 ## Game architecture guardrails
 

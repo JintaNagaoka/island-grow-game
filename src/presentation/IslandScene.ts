@@ -27,15 +27,29 @@ import { LAYOUT } from './layout';
 import {
   computeAnimalVisual,
   computeCookingFireVisual,
-  computeFarmTiles,
   computeFarmVisual,
   computeShelterVisual,
 } from './lifeAnimation';
+import { drawCrewEffect } from './crewDraw';
+import { drawFurnace } from './furnaceDraw';
+import { HUMAN_ACTION_ASSET_LIST, HUMAN_ACTION_DIR } from './humanActions';
+import { computePlantVisual } from './plantGrowth';
 import { computeResidentVisuals, computeSplitEffect, type ResidentVisual } from './residents';
+import {
+  ANIMAL_GLOW_DEPTH,
+  GUARDIAN_SHADOW_DEPTH,
+  SETTLEMENT_SLOTS,
+  computeFurnaceVisual,
+  computeGuardianShadows,
+  computeSettlementEffects,
+  computeSettlementProps,
+  computeVillageHomes,
+  type EffectVisual,
+} from './settlement';
+import { PLANT_FRAME_LIST, PLANT_STAGE_FRAMES, TRUE_PROPS, TRUE_PROP_LIST } from './trueRouteAssets';
 import {
   ANIMAL_EAT_FRAMES,
   COOK_STEAM_FRAMES,
-  FARM_PLOT_TILE,
   FARM_WATER_FRAME,
   HUT_ASSET,
   TURN2_ASSET_LIST,
@@ -59,6 +73,17 @@ const FONT_FAMILY = 'sans-serif';
 // open /?humanWalkPreview). Never active in production builds.
 const WALK_PREVIEW_ENABLED =
   import.meta.env.DEV && new URLSearchParams(window.location.search).has('humanWalkPreview');
+// Review-only: /?playbackSpeed=4 runs the whole route faster through the same global
+// logical-time scaling a future speed control will use. Never active in production builds.
+const DEV_PLAYBACK_SPEED = (() => {
+  if (!import.meta.env.DEV) return undefined;
+  const value = Number(new URLSearchParams(window.location.search).get('playbackSpeed'));
+  return Number.isFinite(value) && value > 0 ? value : undefined;
+})();
+// Review-only: /?paused stops the frame loop from advancing logical time and exposes the
+// game as window.__islandSlice, so a reviewer (or a browser script) can step the logical
+// clock exactly with advance(ms). Never active in production builds.
+const DEV_PAUSED = import.meta.env.DEV && new URLSearchParams(window.location.search).has('paused');
 type ButtonState = 'available' | 'selected' | 'unavailable';
 
 interface ElementButton {
@@ -73,6 +98,9 @@ interface ResidentView {
   readonly sprite: Phaser.GameObjects.Sprite;
   readonly shadow: Phaser.GameObjects.Graphics;
   readonly cold: Phaser.GameObjects.Graphics;
+  // The work effect (dust, chips, dirt, splash) is its own game object, apart from the human
+  // sprite. (A composite work frame bakes the tool or load into the sprite; see humanActions.ts.)
+  readonly effect: Phaser.GameObjects.Graphics;
 }
 
 // Fixed-camera miniature presentation. Gameplay lives entirely in SliceGame;
@@ -89,8 +117,13 @@ export class IslandScene extends Phaser.Scene {
   private shelterGlow!: Phaser.GameObjects.Graphics;
   private shelterSparkles!: Phaser.GameObjects.Graphics;
   private farm!: Phaser.GameObjects.Image;
-  // The standalone plot tiles of the expanded farm, in LAYOUT.farmPlotTiles order.
-  private farmTiles: Phaser.GameObjects.Image[] = [];
+  // The plant plot: one Image per growth stage (index = stage - 1), all on one ground point,
+  // each shown or hidden from computePlantVisual(); none owns state.
+  private plantImages: Phaser.GameObjects.Image[] = [];
+  private plantGlow!: Phaser.GameObjects.Graphics;
+  private plantSparkles!: Phaser.GameObjects.Graphics;
+  // The finished stone furnace (provisional code-native drawing; see furnaceDraw.ts).
+  private furnace!: Phaser.GameObjects.Graphics;
   // The campfire levelled up: replaces fireSprite at the same ground point.
   private cookingFire!: Phaser.GameObjects.Image;
   private cookingGlow!: Phaser.GameObjects.Graphics;
@@ -108,6 +141,20 @@ export class IslandScene extends Phaser.Scene {
   private residentViews = new Map<string, ResidentView>();
   private splitGlow!: Phaser.GameObjects.Graphics;
   private splitSparkles!: Phaser.GameObjects.Graphics;
+  // Turn 3 / Turn 4 / Epilogue props (provisional candidate art), one Image per slot in
+  // SETTLEMENT_SLOTS, plus the two extra homes of the village. Shown or hidden from
+  // computeSettlementProps(); none owns state.
+  private settlementImages = new Map<string, Phaser.GameObjects.Image>();
+  private villageHomes: Phaser.GameObjects.Image[] = [];
+  private effectGlow!: Phaser.GameObjects.Graphics;
+  // The glow around the pen sits behind the animals so it never veils them.
+  private effectGlowBehind!: Phaser.GameObjects.Graphics;
+  // The guardians' contact shadows: on the ground, under the fence.
+  private guardianShadows!: Phaser.GameObjects.Graphics;
+  private effectSparkles!: Phaser.GameObjects.Graphics;
+  // The END panel over the selection panel: title, Retry button.
+  private endObjects: Phaser.GameObjects.GameObject[] = [];
+  private endTitle!: Phaser.GameObjects.Text;
 
   constructor() {
     super(ISLAND_SCENE_KEY);
@@ -120,11 +167,20 @@ export class IslandScene extends Phaser.Scene {
     for (const asset of TURN2_ASSET_LIST) {
       this.load.image(asset.textureKey, `${asset.dir}${asset.filename}`);
     }
+    for (const asset of TRUE_PROP_LIST) {
+      this.load.image(asset.textureKey, `${asset.dir}${asset.filename}`);
+    }
     for (const asset of HUMAN_ASSET_LIST) {
       this.load.image(asset.textureKey, `/assets/human/${asset.filename}`);
     }
     for (const asset of HUMAN_WALK_ASSET_LIST) {
       this.load.image(asset.textureKey, `/assets/human/${asset.filename}`);
+    }
+    for (const asset of HUMAN_ACTION_ASSET_LIST) {
+      this.load.image(asset.textureKey, `${HUMAN_ACTION_DIR}${asset.filename}`);
+    }
+    for (const asset of PLANT_FRAME_LIST) {
+      this.load.image(asset.textureKey, `${asset.dir}${asset.filename}`);
     }
   }
 
@@ -138,7 +194,8 @@ export class IslandScene extends Phaser.Scene {
         repeat: definition.repeat,
       });
     }
-    this.slice = new SliceGame();
+    this.slice = new SliceGame({ playbackSpeed: DEV_PLAYBACK_SPEED });
+    if (DEV_PAUSED) (window as unknown as { __islandSlice?: SliceGame }).__islandSlice = this.slice;
     this.buttons = [];
     this.cameras.main.setBackgroundColor(WORLD_WATER_COLOR);
     this.createWorld();
@@ -146,12 +203,13 @@ export class IslandScene extends Phaser.Scene {
     this.splitGlow = this.add.graphics().setDepth(LAYOUT.humanWarm.y - 0.4);
     this.splitSparkles = this.add.graphics().setDepth(LAYOUT.humanWarm.y + 4);
     this.createButtons();
+    this.createEndPanel();
     this.render(this.slice.snapshot());
   }
 
   update(_time: number, delta: number): void {
     const frameDelta = Number.isFinite(delta) && delta > 0 ? Math.min(delta, MAX_FRAME_DELTA_MS) : 0;
-    this.slice.advance(frameDelta);
+    if (!DEV_PAUSED) this.slice.advance(frameDelta);
     this.render(this.slice.snapshot());
   }
 
@@ -160,10 +218,13 @@ export class IslandScene extends Phaser.Scene {
     this.renderShelter(snapshot);
     this.renderHuman(snapshot);
     this.renderFarm(snapshot);
-    this.renderFarmTiles(snapshot);
+    this.renderPlants(snapshot);
     this.renderCookingFire(snapshot);
     this.renderFire(snapshot);
+    this.renderSettlement(snapshot);
+    this.renderFurnace(snapshot);
     this.renderButtons(snapshot);
+    this.renderEnd(snapshot);
   }
 
   // One animal, one ground point: the wild art levels up into the eating art by a
@@ -192,13 +253,18 @@ export class IslandScene extends Phaser.Scene {
       .setDepth(LAYOUT.animal.y + 0.1);
 
     // Shadow follows whichever art is mostly showing (0.71x as wide, 0.126x as tall as the sprite is wide).
+    // From Turn 3 the fenced livestock replace both and stand on their own ground.
     const eating = visual.eatAlpha >= 0.5;
-    this.drawAnimalShadow(
-      eating ? LAYOUT.animal : wildGround,
-      eating
-        ? frame.width * frame.baseScale * 0.55
-        : WORLD_ASSETS.animal.width * WORLD_ASSETS.animal.baseScale * 0.71,
-    );
+    if (visual.wildAlpha <= 0 && visual.eatAlpha <= 0) {
+      this.animalShadow.clear();
+    } else {
+      this.drawAnimalShadow(
+        eating ? LAYOUT.animal : wildGround,
+        eating
+          ? frame.width * frame.baseScale * 0.55
+          : WORLD_ASSETS.animal.width * WORLD_ASSETS.animal.baseScale * 0.71,
+      );
+    }
     this.drawLevelUp(
       this.animalGlow,
       this.animalSparkles,
@@ -207,6 +273,51 @@ export class IslandScene extends Phaser.Scene {
       visual.glow,
       visual.sparkle,
     );
+  }
+
+  // Turn 3 / Turn 4 / Epilogue: every prop slot from the visible world and the active
+  // Wave's logical progress, then the Wave's glow and sparkles.
+  private renderSettlement(snapshot: SliceSnapshot): void {
+    for (const visual of computeSettlementProps(snapshot)) {
+      // A mirrored building keeps its ground anchor on its ground point (groundOrigin).
+      const origin = groundOrigin({ ...visual.asset, flipX: visual.flipX });
+      this.settlementImages
+        .get(visual.slot)!
+        .setOrigin(origin.x, origin.y)
+        .setFlipX(visual.flipX)
+        .setVisible(visual.alpha > 0)
+        .setAlpha(visual.alpha)
+        .setPosition(visual.ground.x, visual.ground.y)
+        .setScale(visual.asset.baseScale * visual.scale)
+        .setDepth(visual.depth);
+    }
+    computeVillageHomes(snapshot).forEach((home, index) => {
+      const origin = groundOrigin({ ...TRUE_PROPS.secondHut, flipX: home.flipX });
+      this.villageHomes[index]
+        .setOrigin(origin.x, origin.y)
+        .setFlipX(home.flipX)
+        .setVisible(home.alpha > 0)
+        .setAlpha(home.alpha)
+        .setPosition(home.ground.x, home.ground.y)
+        .setScale(TRUE_PROPS.secondHut.baseScale * home.scale)
+        .setDepth(home.ground.y);
+    });
+    this.guardianShadows.clear();
+    for (const shadow of computeGuardianShadows(snapshot)) {
+      this.guardianShadows.fillStyle(0x183321, shadow.alpha);
+      this.guardianShadows.fillEllipse(shadow.ground.x, shadow.ground.y, shadow.width, shadow.height);
+    }
+    this.drawEffects(computeSettlementEffects(snapshot));
+  }
+
+  private drawEffects(effects: readonly EffectVisual[]): void {
+    this.effectGlow.clear();
+    this.effectGlowBehind.clear();
+    this.effectSparkles.clear();
+    for (const effect of effects) {
+      const glow = effect.behindAnimals ? this.effectGlowBehind : this.effectGlow;
+      this.drawLevelUpShapes(glow, this.effectSparkles, effect.ground, effect.width, effect.glow, effect.sparkle);
+    }
   }
 
   private drawAnimalShadow(ground: { x: number; y: number }, width: number): void {
@@ -229,6 +340,18 @@ export class IslandScene extends Phaser.Scene {
     glow.clear();
     sparkles.clear();
     if (sparkle === null) return;
+    this.drawLevelUpShapes(glow, sparkles, ground, width, glowStrength, sparkle);
+  }
+
+  // Draws one glow and its sparkles without clearing, so several can share a layer.
+  private drawLevelUpShapes(
+    glow: Phaser.GameObjects.Graphics,
+    sparkles: Phaser.GameObjects.Graphics,
+    ground: { x: number; y: number },
+    width: number,
+    glowStrength: number,
+    sparkle: number,
+  ): void {
     const { x, y } = ground;
     glow.fillStyle(0xfff0a0, 0.3 * glowStrength);
     glow.fillEllipse(x, y - 28, width * 1.15, width * 0.62);
@@ -263,7 +386,7 @@ export class IslandScene extends Phaser.Scene {
     );
   }
 
-  // The composite farm-work art (human + sprout plot) stands on the plot's ground
+  // The composite farm-work art (human + old four-plant plot) stands on the plot's ground
   // point; its frame comes from the logical clock, never from animation callbacks.
   private renderFarm(snapshot: SliceSnapshot): void {
     const farm = computeFarmVisual(snapshot);
@@ -279,15 +402,34 @@ export class IslandScene extends Phaser.Scene {
       .setDepth(LAYOUT.plot.y + 2);
   }
 
-  // Each tile grows in (scale and alpha) from its own ground point, from the logical
-  // clock alone; once the farm has expanded they all simply stay.
-  private renderFarmTiles(snapshot: SliceSnapshot): void {
-    computeFarmTiles(snapshot).forEach((tile, index) => {
-      this.farmTiles[index]
-        .setVisible(tile.alpha > 0)
-        .setAlpha(tile.alpha)
-        .setScale(FARM_PLOT_TILE.baseScale * tile.scale);
+  // The plant plot: the stage images cross-fade on one ground point from the revealed plant
+  // stage and the Wave's logical time (plantGrowth.ts). Each frame's own origin puts its plot
+  // base on that point, so a stage change never moves the base.
+  private renderPlants(snapshot: SliceSnapshot): void {
+    const visual = computePlantVisual(snapshot);
+    visual.stages.forEach((stage, index) => {
+      const frame = PLANT_STAGE_FRAMES[stage.stage];
+      this.plantImages[index]
+        .setVisible(stage.alpha > 0)
+        .setAlpha(stage.alpha)
+        .setScale(frame.baseScale * stage.scale);
     });
+    this.drawLevelUp(
+      this.plantGlow,
+      this.plantSparkles,
+      LAYOUT.true.plantPlot,
+      80,
+      visual.glow,
+      visual.sparkle,
+    );
+  }
+
+  // The finished furnace: shown from the revealed 'furnace' prop (and while its Wave builds
+  // it); the flame is drawn from the logical clock, so it keeps burning to the END.
+  private renderFurnace(snapshot: SliceSnapshot): void {
+    const visual = computeFurnaceVisual(snapshot);
+    this.furnace.setVisible(visual.alpha > 0).setAlpha(visual.alpha).setScale(visual.scale);
+    if (visual.alpha > 0) drawFurnace(this.furnace, snapshot.clockMs);
   }
 
   // The campfire levels up into the cooking fire at the campfire's ground point.
@@ -341,7 +483,7 @@ export class IslandScene extends Phaser.Scene {
       const sprite = this.add
         .sprite(LAYOUT.humanStart.x, LAYOUT.humanStart.y, initial.textureKey)
         .setScale(HUMAN_SPRITE_SCALE);
-      view = { sprite, shadow, cold: this.add.graphics() };
+      view = { sprite, shadow, cold: this.add.graphics(), effect: this.add.graphics() };
       this.residentViews.set(id, view);
     }
     return view;
@@ -355,15 +497,30 @@ export class IslandScene extends Phaser.Scene {
     view.sprite.setPosition(x, pose.y - pose.lift);
     view.sprite.setOrigin(pose.originX, pose.originY);
     this.applyHumanFrame(view.sprite, pose);
-    view.sprite.setScale(pose.facing * HUMAN_SPRITE_SCALE * visual.scale, HUMAN_SPRITE_SCALE * visual.scale);
+    // A composite work frame carries its own size multiplier (humanActions.ts), so every frame
+    // shows the approved head size; the walk and idle poses leave it at 1.
+    const size = HUMAN_SPRITE_SCALE * visual.scale * (pose.sizeMul ?? 1);
+    view.sprite.setScale(pose.facing * size, size);
     view.sprite.setDepth(pose.y + 2);
     this.renderHumanCold(view.cold, pose);
+    this.renderCrewLayers(view, visual, pose.y);
 
     const shadowScale = (1 - Math.min(0.32, pose.lift / 28)) * visual.scale;
     view.shadow.clear();
     view.shadow.fillStyle(0x183321, 0.28 * shadowScale * alpha);
     view.shadow.fillEllipse(x, pose.y + 2, 34 * shadowScale, 8 * shadowScale);
     view.shadow.setDepth(pose.y);
+  }
+
+  // The effect layer of a working resident, drawn as small provisional shapes in design
+  // pixels. Nothing here selects a pose or changes game state.
+  private renderCrewLayers(view: ResidentView, visual: ResidentVisual, groundY: number): void {
+    const effect = visual.layers?.effect ?? null;
+    view.effect.clear().setVisible(effect !== null && visual.alpha > 0);
+    if (effect !== null) {
+      drawCrewEffect(view.effect, effect);
+      view.effect.setDepth(groundY + 3.5);
+    }
   }
 
   // Walk poses play the per-direction Phaser animation; planHumanAnimation()
@@ -572,9 +729,26 @@ export class IslandScene extends Phaser.Scene {
     this.animalEat = this.addGroundSprite(ANIMAL_EAT_FRAMES[0], LAYOUT.animal.x, LAYOUT.animal.y).setVisible(false);
     this.animalSparkles = this.add.graphics().setDepth(LAYOUT.animal.y + 1.5);
     this.farm = this.addGroundSprite(FARM_WATER_FRAME, LAYOUT.plot.x, LAYOUT.plot.y).setVisible(false);
-    this.farmTiles = LAYOUT.farmPlotTiles.map((ground) =>
-      this.addGroundSprite(FARM_PLOT_TILE, ground.x, ground.y).setVisible(false),
-    );
+    // The plant plot: one image per growth stage on the one ground contact; the per-frame
+    // origin and scale (trueRouteAssets.ts) keep the plot base from moving between stages.
+    const plot = LAYOUT.true.plantPlot;
+    this.plantGlow = this.add.graphics().setDepth(plot.y - 0.4);
+    this.plantImages = PLANT_FRAME_LIST.map((frame) => {
+      const origin = groundOrigin(frame);
+      return this.add
+        .image(plot.x, plot.y, frame.textureKey)
+        .setOrigin(origin.x, origin.y)
+        .setScale(frame.baseScale)
+        .setDepth(plot.y)
+        .setVisible(false);
+    });
+    this.plantSparkles = this.add.graphics().setDepth(plot.y + 1.5);
+    // The furnace stands beside the workshop on its own ground point (not the cooking fire's).
+    this.furnace = this.add
+      .graphics()
+      .setPosition(LAYOUT.true.furnace.x, LAYOUT.true.furnace.y)
+      .setDepth(LAYOUT.true.furnace.y)
+      .setVisible(false);
     // The cooking fire shares the campfire's ground point and is drawn just over it.
     this.cookingGlow = this.add.graphics().setDepth(LAYOUT.cookingFire.y - 0.4);
     this.cookingFire = this.addGroundSprite(COOK_STEAM_FRAMES[0], LAYOUT.cookingFire.x, LAYOUT.cookingFire.y)
@@ -586,5 +760,80 @@ export class IslandScene extends Phaser.Scene {
       .setDepth(LAYOUT.fire.y + 1)
       .setVisible(false);
     this.fireSparks = this.add.graphics().setDepth(LAYOUT.fire.y + 1.5);
+    this.createSettlement();
+  }
+
+  // Image per prop slot, in a fixed order, on its ground anchor (hidden until revealed).
+  private createSettlement(): void {
+    this.settlementImages = new Map();
+    for (const slot of SETTLEMENT_SLOTS) {
+      const asset = TRUE_PROPS[slot];
+      const origin = groundOrigin(asset);
+      this.settlementImages.set(slot, this.add.image(0, 0, asset.textureKey).setOrigin(origin.x, origin.y).setVisible(false));
+    }
+    // The village's third and fourth homes reuse the second hut's candidate art.
+    const hut = TRUE_PROPS.secondHut;
+    const hutOrigin = groundOrigin(hut);
+    this.villageHomes = LAYOUT.true.homes.map(() =>
+      this.add.image(0, 0, hut.textureKey).setOrigin(hutOrigin.x, hutOrigin.y).setVisible(false),
+    );
+    this.effectGlow = this.add.graphics().setDepth(1400);
+    this.effectGlowBehind = this.add.graphics().setDepth(ANIMAL_GLOW_DEPTH);
+    this.guardianShadows = this.add.graphics().setDepth(GUARDIAN_SHADOW_DEPTH);
+    this.effectSparkles = this.add.graphics().setDepth(1401);
+  }
+
+  // END: the selection panel gives way to the ending title and a Retry button.
+  // Retry resets the authoritative game and rebuilds every presentation object by
+  // restarting the Scene, so nothing from the finished run can linger.
+  private createEndPanel(): void {
+    const panelHeight = DESIGN_HEIGHT - LAYOUT.ui.panelTop;
+    const backdrop = this.add
+      .rectangle(0, LAYOUT.ui.panelTop, DESIGN_WIDTH, panelHeight, 0x111b24)
+      .setOrigin(0, 0)
+      .setDepth(2010);
+    this.endTitle = this.add
+      .text(DESIGN_WIDTH / 2, LAYOUT.ui.panelTop + 46, 'END', {
+        fontFamily: FONT_FAMILY,
+        fontSize: '46px',
+        fontStyle: 'bold',
+        color: '#ffe27a',
+      })
+      .setOrigin(0.5)
+      .setDepth(2011);
+    const width = 300;
+    const height = 76;
+    const cx = DESIGN_WIDTH / 2;
+    const cy = LAYOUT.ui.panelTop + 140;
+    const button = this.add.graphics().setDepth(2011);
+    button.fillStyle(0xb95624, 1);
+    button.fillRoundedRect(cx - width / 2, cy - height / 2, width, height, 20);
+    button.lineStyle(4, 0xffd18a, 1);
+    button.strokeRoundedRect(cx - width / 2, cy - height / 2, width, height, 20);
+    const label = this.add
+      .text(cx, cy, '↻ Retry', { fontFamily: FONT_FAMILY, fontSize: '38px', fontStyle: 'bold', color: '#fff3dc' })
+      .setOrigin(0.5)
+      .setDepth(2012);
+    const zone = this.add
+      .zone(cx, cy, width, height)
+      .setInteractive()
+      .setDepth(2013)
+      .on('pointerdown', () => {
+        // Only an ended game can be retried; SliceGame.retry() refuses otherwise.
+        if (this.slice.retry()) this.scene.restart();
+      });
+    this.endObjects = [backdrop, this.endTitle, button, label, zone];
+    this.endObjects.forEach((object) => (object as Phaser.GameObjects.GameObject & { setVisible(v: boolean): unknown }).setVisible(false));
+  }
+
+  private renderEnd(snapshot: SliceSnapshot): void {
+    const ended = snapshot.phase === 'ended';
+    for (const object of this.endObjects) {
+      (object as Phaser.GameObjects.GameObject & { setVisible(v: boolean): unknown }).setVisible(ended);
+    }
+    if (ended) {
+      const kind = snapshot.ending?.kind;
+      this.endTitle.setText(kind === 'true' ? 'TRUE END' : kind === 'secret' ? 'SECRET END' : 'END');
+    }
   }
 }

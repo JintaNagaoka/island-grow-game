@@ -9,17 +9,14 @@ import { readPng, type PngImage } from '../testSupport/png';
 import { HUMAN_ASSET_LIST, HUMAN_ASSETS, HUMAN_SPRITE_SCALE, HUMAN_WALK_ASSET_LIST } from './humanAssets';
 import { walkRoute, walkRouteDurationMs, walkToward, HUMAN_WALK_SPEED_PX_PER_MS } from './humanWalk';
 import { LAYOUT } from './layout';
+import { PLANT_FRAME_LIST } from './trueRouteAssets';
 import {
   ANIMAL_EAT_FRAMES,
   COOK_STEAM_FRAMES,
   FARM_ASSET_DIR,
   FARM_BASE_SCALE,
-  FARM_COMPOSITE_PLOT_CENTER_PX,
-  FARM_GRID,
   FARM_HARVEST_FRAMES,
   FARM_PLOT_TILE,
-  FARM_TILE_CENTER_FROM_ANCHOR_PX,
-  FARM_TILE_STEP_PX,
   FARM_WATER_FRAME,
   FARM_WATER_HUMAN_FEET,
   FARM_WORK_SEQUENCE,
@@ -341,9 +338,9 @@ describe('Standalone farm plot component (farm-plot-four-plants.png)', () => {
     expect((componentPlant * 0.22 ** 2) / (embedded * FARM_BASE_SCALE ** 2)).toBeGreaterThan(5);
   });
 
-  it('is never edited by the runtime: the Scene only scales and positions it', () => {
+  it('is never edited by the runtime, and no longer drawn: the plant plot replaced the tile grid', () => {
     const scene = readFileSync(new URL('src/presentation/IslandScene.ts', ROOT), 'utf8');
-    expect(scene).toContain('FARM_PLOT_TILE');
+    expect(scene).not.toContain('FARM_PLOT_TILE');
     expect(scene).not.toMatch(/farm_plot_single|farm-plot|\.jpg/);
   });
 });
@@ -575,7 +572,12 @@ interface Box {
 const overlaps = (a: Box, b: Box): boolean => a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
 
 // Visible (alpha >= 128) pixel extent of a frame placed at `ground`.
-function visibleBox(asset: WorldAsset, bytes: Uint8Array, ground: { x: number; y: number }, scale = asset.baseScale): Box {
+function visibleBox(
+  asset: Pick<WorldAsset, 'groundAnchor' | 'width' | 'height' | 'baseScale' | 'flipX'>,
+  bytes: Uint8Array,
+  ground: { x: number; y: number },
+  scale = asset.baseScale,
+): Box {
   const png = readPng(bytes);
   const origin = groundOrigin(asset);
   let [minX, minY, maxX, maxY] = [png.width, png.height, -1, -1];
@@ -615,10 +617,6 @@ const union = (boxes: readonly Box[]): Box => ({
 });
 
 const PLOT_BOX = union([...FARM_HARVEST_FRAMES, FARM_WATER_FRAME].map((frame) => visibleBox(frame, fileBytes(frame), LAYOUT.plot)));
-// The expanded farm: the composite plot plus every standalone tile's visible art.
-const TILE_BYTES = fileBytes(FARM_PLOT_TILE);
-const TILE_BOXES = LAYOUT.farmPlotTiles.map((ground) => visibleBox(FARM_PLOT_TILE, TILE_BYTES, ground));
-const FARM_BOX = union([PLOT_BOX, ...TILE_BOXES]);
 const COOK_BOX = union(COOK_STEAM_FRAMES.map((frame) => visibleBox(frame, fileBytes(frame), LAYOUT.cookingFire)));
 const HUT_BOX = visibleBox(HUT_ASSET, fileBytes(HUT_ASSET), LAYOUT.hut);
 
@@ -658,83 +656,19 @@ function routeSamples(): { x: number; y: number }[] {
   return Array.from({ length: 121 }, (_, i) => walkRoute(LAYOUT.humanPlotRoute, (duration * i) / 120));
 }
 
-describe('Expanded farm layout', () => {
-  it('lays out one component per grid cell outside the composite plot, on one coherent isometric lattice', () => {
-    const { along, across, compositeCells } = FARM_GRID;
-    expect(LAYOUT.farmPlotTiles).toHaveLength(along * across - compositeCells * compositeCells);
-    // Exactly three standalone components plus the composite plot: 16 plants (the reference has about 12),
-    // not the 48-plant carpet of 11 components.
-    expect(LAYOUT.farmPlotTiles).toHaveLength(3);
-    expect((LAYOUT.farmPlotTiles.length + 1) * 4).toBeLessThanOrEqual(16);
-    expect((LAYOUT.farmPlotTiles.length + 1) * 4).toBeGreaterThanOrEqual(12);
-    const stepX = FARM_TILE_STEP_PX.x * FARM_PLOT_TILE.baseScale * FARM_GRID.spacing;
-    const stepY = FARM_TILE_STEP_PX.y * FARM_PLOT_TILE.baseScale * FARM_GRID.spacing;
-    const first = LAYOUT.farmPlotTiles[0];
-    const cells = new Set<string>();
-    for (const tile of LAYOUT.farmPlotTiles) {
-      // x = x0 + (a + b) * stepX and y = y0 + (a - b) * stepY for integers a, b: parity and spacing hold.
-      const sum = (tile.x - first.x) / stepX;
-      const diff = (tile.y - first.y) / stepY;
-      expect(Math.abs(sum - Math.round(sum))).toBeLessThan(1e-6);
-      expect(Math.abs(diff - Math.round(diff))).toBeLessThan(1e-6);
-      expect(Math.abs((Math.round(sum) + Math.round(diff)) % 2)).toBe(0);
-      cells.add(`${tile.x.toFixed(4)},${tile.y.toFixed(4)}`);
-    }
-    expect(cells.size).toBe(LAYOUT.farmPlotTiles.length); // no two tiles on the same spot
-    // Components share one anchor convention and scale, so they cannot jump relative to each other.
-    expect(FARM_PLOT_TILE.baseScale).toBe(0.08);
-  });
+// The standalone four-plant tile grid that once grew around the composite plot was retired
+// when the shared plant plot (plantGrowth.ts) took over the persistent plant; the tile PNG and
+// its registry stay as supplied, but nothing lays them out or draws them any more. What is
+// left to pin here is where the composite plot (Turn 2's work art) and the new plant plot
+// stand, so neither sits on the baked rock, the hut, the fire or the reserved growth spaces.
+const PLANT_BOXES = PLANT_FRAME_LIST.map((frame) =>
+  visibleBox(frame, readFileSync(new URL(`public${frame.dir}${frame.filename}`, ROOT)), LAYOUT.true.plantPlot, frame.baseScale),
+);
+const PLANT_BOX = union(PLANT_BOXES);
 
-  it('keeps the soil patches nearly touching, so the four patches read as one farm (not isolated beds)', () => {
-    // 1 = soil rims just meet. The previous placement used 2 (four isolated beds).
-    expect(FARM_GRID.spacing).toBeGreaterThanOrEqual(0.95);
-    expect(FARM_GRID.spacing).toBeLessThanOrEqual(1.15);
-    const pixels = LAYOUT.farmPlotTiles.map((ground) => opaquePixels(FARM_PLOT_TILE, TILE_BYTES, ground));
-    for (let a = 0; a < pixels.length; a += 1) {
-      for (let b = a + 1; b < pixels.length; b += 1) {
-        // Only the rounded soil rims overlap, and only partly (a sampled share of the art's rounded positions).
-        const shared = [...pixels[a]].filter((key) => pixels[b].has(key)).length;
-        expect(shared / pixels[a].size).toBeLessThan(0.25);
-      }
-    }
-    // The gap between the composite plot's own box and its nearest patch is small (under 12 design px).
-    const nearest = Math.min(...LAYOUT.farmPlotTiles.map((tile) => Math.hypot(tile.x - LAYOUT.plot.x, tile.y - LAYOUT.plot.y)));
-    expect(nearest).toBeLessThan(FARM_TILE_STEP_PX.x * FARM_PLOT_TILE.baseScale * FARM_GRID.spacing * 2);
-    // Plant size is unchanged: the spacing, not the scale, sets the footprint.
-    expect(FARM_PLOT_TILE.baseScale).toBe(0.08);
-  });
-
-  it('never covers the composite plot cell with a component', () => {
-    const centre = {
-      x: LAYOUT.plot.x + FARM_COMPOSITE_PLOT_CENTER_PX.x * FARM_BASE_SCALE,
-      y: LAYOUT.plot.y + FARM_COMPOSITE_PLOT_CENTER_PX.y * FARM_BASE_SCALE,
-    };
-    const scale = FARM_PLOT_TILE.baseScale;
-    for (const tile of LAYOUT.farmPlotTiles) {
-      const tileCentre = {
-        x: tile.x + FARM_TILE_CENTER_FROM_ANCHOR_PX.x * scale,
-        y: tile.y + FARM_TILE_CENTER_FROM_ANCHOR_PX.y * scale,
-      };
-      // A component's plant-lattice centre is at least one cell away from the composite plot's centre.
-      const cellsAway = Math.hypot((tileCentre.x - centre.x) / (FARM_TILE_STEP_PX.x * scale), (tileCentre.y - centre.y) / (FARM_TILE_STEP_PX.y * scale));
-      expect(cellsAway).toBeGreaterThan(0.99);
-    }
-  });
-
-  it('is close to the Visual Reference’s plot in size and shape (about 140x90 design px)', () => {
-    const width = FARM_BOX.right - FARM_BOX.left;
-    const height = FARM_BOX.bottom - FARM_BOX.top;
-    // Reference plot: about 145x92 reference px; the island is drawn 0.95x as wide here.
-    expect(width).toBeGreaterThan(138 * 0.7);
-    expect(width).toBeLessThan(138 * 1.15);
-    expect(height).toBeGreaterThan(88 * 0.65);
-    expect(height).toBeLessThan(88 * 1.15);
-    // A wider-than-tall field, like the reference's parallelogram.
-    expect(width / height).toBeGreaterThan(1.3);
-  });
-
-  it('keeps the whole farm left of the central reserved space and clear of the UI, hut, fire, animal and future space', () => {
-    for (const box of [FARM_BOX, ...TILE_BOXES]) {
+describe('Plant plot layout', () => {
+  it('keeps every plant stage clear of the UI, the hut, the fire, the animal and the reserved growth spaces', () => {
+    for (const box of [PLANT_BOX, ...PLANT_BOXES]) {
       expect(box.bottom).toBeLessThan(LAYOUT.ui.panelTop);
       expect(box.left).toBeGreaterThan(LAYOUT.island.left);
       expect(box.top).toBeGreaterThan(LAYOUT.island.top);
@@ -742,11 +676,20 @@ describe('Expanded farm layout', () => {
         expect(overlaps(box, other)).toBe(false);
       }
     }
-    // The farm is entirely above the central reserved space (or entirely left of it), with a margin.
-    const central = LAYOUT.growthSpaces.find((space) => space.id === 'central');
-    expect(Math.max((central?.top ?? 0) - FARM_BOX.bottom, (central?.left ?? 0) - FARM_BOX.right)).toBeGreaterThan(6);
-    // A clear lane remains between the farm and the hut for walking.
-    expect(HUT_BOX.top - FARM_BOX.bottom).toBeGreaterThan(8);
+    // A clear lane remains between the plot and the hut for walking.
+    expect(HUT_BOX.top - PLANT_BOX.bottom).toBeGreaterThan(8);
+  });
+
+  it('puts the plot base on grass', () => {
+    const base = toIslandPx(LAYOUT.true.plantPlot);
+    expect(groundAt(base.x, base.y)).toBe('grass');
+    for (const [dx, dy] of [[-20, 0], [20, 0], [0, -10]]) expect(groundAt(base.x + dx, base.y + dy)).not.toBe('none');
+  });
+
+  it('stands the tending resident beside the plot, not on it', () => {
+    const human = { left: LAYOUT.plotHuman.x - 8, right: LAYOUT.plotHuman.x + 8, top: LAYOUT.plotHuman.y - 3, bottom: LAYOUT.plotHuman.y + 3 };
+    expect(overlaps(human, PLANT_BOXES[0])).toBe(false);
+    expect(LAYOUT.plotHuman.x).toBeLessThan(LAYOUT.true.plantPlot.x);
   });
 
   // The previous (too low, too far left) farm anchor, island px / design px.
@@ -758,8 +701,8 @@ describe('Expanded farm layout', () => {
     expect(FARM_WATER_FRAME.placement.y).toBeLessThan(PREVIOUS_ANCHOR_ISLAND.y);
     expect(LAYOUT.plot.y).toBeLessThan(PREVIOUS_ANCHOR_DESIGN.y - 20);
     expect(LAYOUT.plot.x).toBeGreaterThan(PREVIOUS_ANCHOR_DESIGN.x + 40);
-    // Every farm part stays on the island's grass terrace, further from the outer left edge than before.
-    expect(FARM_BOX.left - LAYOUT.island.left).toBeGreaterThan(PREVIOUS_ANCHOR_DESIGN.x - 40 - LAYOUT.island.left + 30);
+    // Every plot part stays on the island's grass terrace, further from the outer left edge than before.
+    expect(PLOT_BOX.left - LAYOUT.island.left).toBeGreaterThan(PREVIOUS_ANCHOR_DESIGN.x - 40 - LAYOUT.island.left + 30);
   });
 
   // The small rock baked into the island art. It is neither drawn over, hidden nor moved.
@@ -798,24 +741,16 @@ describe('Expanded farm layout', () => {
       const left = LAYOUT.plot.x + (main.left - groundOrigin(frame).x * frame.width) * frame.baseScale;
       expect(overlaps({ ...box, left }, rock)).toBe(false);
     }
-    for (const box of TILE_BOXES) expect(overlaps(box, rock)).toBe(false);
+    for (const box of PLANT_BOXES) expect(overlaps(box, rock)).toBe(false);
     // The walk: the Human's whole body box stays off the rock at every step.
     for (const point of routeSamples()) expect(overlaps({ left: point.x - 8, right: point.x + 8, top: point.y - 52, bottom: point.y + 3 }, rock)).toBe(false);
   });
 
-  it('keeps every tile on grass, away from cliffs, water and the sand path', () => {
-    for (const tile of LAYOUT.farmPlotTiles) {
-      const px = toIslandPx(tile);
-      expect(groundAt(px.x, px.y)).toBe('grass');
-      for (const [dx, dy] of [[-14, 0], [14, 0], [0, -8], [0, 8]]) expect(groundAt(px.x + dx, px.y + dy)).not.toBe('none');
-    }
-  });
-
-  it('keeps the walking route off every tile (feet) except at the Human’s own spot', () => {
+  it('keeps the walking route off the plant plot (feet) except at the Human’s own spot', () => {
     for (const point of routeSamples()) {
       if (Math.hypot(point.x - LAYOUT.plotHuman.x, point.y - LAYOUT.plotHuman.y) < 40) continue;
       const feet = { left: point.x - 8, right: point.x + 8, top: point.y - 3, bottom: point.y + 3 };
-      for (const box of TILE_BOXES) expect(overlaps(feet, box)).toBe(false);
+      for (const box of PLANT_BOXES) expect(overlaps(feet, box)).toBe(false);
     }
   });
 });
@@ -830,8 +765,8 @@ describe('Turn 2 layout (360x640 and 390x844 share the 720x1280 design space)', 
     expect(LAYOUT.plot.y).toBeLessThan(LAYOUT.hut.y - 100);
     expect(PLOT_BOX.bottom).toBeLessThan(LAYOUT.ui.panelTop);
     expect(PLOT_BOX.left).toBeGreaterThan(LAYOUT.island.left);
-    // The composite's contact point, the Human beside it and every standalone tile stand on grass.
-    for (const point of [LAYOUT.plot, LAYOUT.plotHuman, ...LAYOUT.farmPlotTiles]) {
+    // The composite's contact point, the Human beside it and the plant plot stand on grass.
+    for (const point of [LAYOUT.plot, LAYOUT.plotHuman, LAYOUT.true.plantPlot]) {
       expect(groundAt(toIslandPx(point).x, toIslandPx(point).y)).toBe('grass');
       expect(standable(point, 6)).toBe(true);
     }

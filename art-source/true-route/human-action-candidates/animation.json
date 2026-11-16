@@ -1,0 +1,17 @@
+{
+  "status": "provisional",
+  "note": "Candidate frames from true-route-materials-v3; not approved art. Two frames per action, right-facing (mirrored at runtime). Mirrors ACTION_ANIMATIONS in src/presentation/trueRouteAssets.ts (checked by a test).",
+  "frameSize": { "width": 512, "height": 512 },
+  "origin": { "x": 0.5, "y": 0.9375 },
+  "frameDurationMs": 300,
+  "repeat": true,
+  "direction": "right",
+  "rootMotion": false,
+  "animations": [
+    { "id": "gather", "sequence": ["gather-1.png", "gather-2.png"] },
+    { "id": "build", "sequence": ["build-1.png", "build-2.png"] },
+    { "id": "carry", "sequence": ["carry-1.png", "carry-2.png"] },
+    { "id": "dig", "sequence": ["dig-a-candidate.png", "dig-b-candidate.png"] },
+    { "id": "water-carry", "sequence": ["water-carry-a-candidate.png", "water-carry-b-candidate.png"] }
+  ]
+}

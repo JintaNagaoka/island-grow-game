@@ -96,10 +96,15 @@ describe('resident visuals', () => {
     }
   });
 
-  it('hands resident 2 to the composite farm art exactly as the single human was', () => {
-    for (const ms of [SPLIT_WAVE_MS + WALK_MS + 10, TURN2_MS + 500]) {
-      expect(visualOf(turn2At(ms).snapshot(), 'resident-2').alpha).toBe(0);
-    }
+  it('hands resident 2 to the composite farm art while the water and harvest poses play, and takes them back after', () => {
+    // The composite (human and old plot) stands in during the water Wave...
+    expect(visualOf(turn2At(SPLIT_WAVE_MS + WALK_MS + 10).snapshot(), 'resident-2').alpha).toBe(0);
+    // ...and once the plant plot has taken over the resident is an independent sprite at the plot again,
+    // not hidden along with the composite.
+    const after = visualOf(turn2At(TURN2_MS + 500).snapshot(), 'resident-2');
+    expect(after.alpha).toBe(1);
+    expect(after.pose.x).toBeCloseTo(LAYOUT.plotHuman.x, 5);
+    expect(after.pose.y).toBeCloseTo(LAYOUT.plotHuman.y, 5);
   });
 
   it('is unaffected by one resident stopping: resident 1 is identical before and after resident 2 arrives', () => {
