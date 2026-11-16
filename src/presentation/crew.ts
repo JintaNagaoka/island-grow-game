@@ -15,7 +15,10 @@ import { LAYOUT, type Point } from './layout';
 import type { ResidentVisual } from './residents';
 
 // Residents beyond the Turn 1/2 founders, and the autonomous work of every resident from
-// Turn 3 on: who walks where, what they do there, and when they are out of sight.
+// Turn 3 on: who walks where, what they do there, and when they are out of sight. Work exists
+// only to create something (a building, the riverbed, the fence, the carried water): a routine
+// ends when its creation step ends and the resident then stands at rest. Nothing restarts work
+// on a finished target, and the plant grows by the Rule Engine's Stage alone, with no tending.
 // Pure functions of the snapshot and the logical clock; nothing here creates, removes or
 // moves a resident in game state. A resident's `place` (WorldState) is where a Wave
 // leaves them, and the next Wave's routine starts there, so nobody jumps at a Wave
@@ -51,12 +54,14 @@ export function residentSpot(place: ResidentPlace, id: string): Point {
 }
 
 // Points a routine can walk to: every resting place, plus the ones only visited in passing.
-export type SpotId = ResidentPlace | 'spring' | 'cave-inside' | 'stone-pile';
+export type SpotId = ResidentPlace | 'spring' | 'cave-inside' | 'stone-pile' | 'workshop-site';
 const SPOTS: Readonly<Record<SpotId, Point>> = {
   ...PLACE_SPOTS,
   spring: T.springBank,
   'cave-inside': T.caveInside,
   'stone-pile': T.stonePile,
+  // Where the workshop's builder stands, facing right, with the mallet face on its left face.
+  'workshop-site': T.workshopSite,
 };
 
 // --- Layers. A working resident is the HUMAN (a composite work sprite from humanActions.ts,
@@ -110,12 +115,16 @@ const work = (action: WorkId, ms: number, facing: -1 | 1 = 1): Step => ({ kind: 
 
 // One resident's routine in one Wave: steps that run back to back from the resident's place.
 // `from` is that place (checked against the Wave sequence by a test). A Wave without a routine
-// for a resident leaves them to their role (below) or standing at their place.
+// for a resident leaves them standing at rest at their place.
 export interface Routine {
   readonly from: ResidentPlace;
   readonly steps: readonly Step[];
+  // How the resident stands once the routine is over: at rest (idle), or back in the warm pose
+  // the first resident holds at the fire, so the next Wave continues from the same pose.
+  readonly ends?: 'warm';
 }
 const routine = (from: ResidentPlace, ...steps: Step[]): Routine => ({ from, steps });
+const routineEndingWarm = (from: ResidentPlace, ...steps: Step[]): Routine => ({ from, steps, ends: 'warm' });
 
 // The cave trip: walk to the entrance, walk in (going dark as the entrance swallows the
 // resident), work inside out of sight, walk out. The exterior changes after the work.
@@ -134,20 +143,27 @@ const R1 = FIRST_RESIDENT_ID;
 const R2 = SECOND_RESIDENT_ID;
 const R3 = THIRD_RESIDENT_ID;
 const [R4, R5, R6] = VILLAGE_RESIDENT_IDS;
+// How long the first resident strikes the workshop (two strike pairs and a little more).
+const WORKSHOP_BUILD_MS = 2100;
 
 // Routines by Wave, then resident. Independent work is parallel: several residents may
 // have a routine in the same Wave, each running from the Wave's start.
 export const ROUTINES: Partial<Record<WaveId, Readonly<Record<string, Routine>>>> = {
-  // Turn 3
-  'farm-matures': { [R2]: routine('plot', work('dig', 1300)) },
+  // Turn 3. The plant needs nobody: farm-matures / farm-blossoms / ecosystem-flourishes have no
+  // routine at all, and the second resident simply stands at the plot.
+  // The workshop is built by an existing resident: the first walks over from the fire, strikes
+  // the workshop's left face with the mallet, and walks back to the fire when it stands.
+  'workshop-appears': {
+    [R1]: routineEndingWarm('fire', walk('workshop-site'), work('build', WORKSHOP_BUILD_MS), walk('fire')),
+  },
   'human-walks-to-workshop': { [R3]: routine('fire', walk('workshop')) },
   'human-gathers-stone': { [R3]: routine('workshop', work('gather', 1700)) },
   'human-carries-stone': { [R3]: routine('workshop', carry('stone-block', 'hut-site')) },
-  // The mallet strikes the second hut's wall; the hut rises after the first strikes.
+  // The mallet strikes the second hut's wall; the hut rises after the first strikes and stands
+  // when the building work ends.
   'human-builds-hut': { [R3]: routine('hut-site', work('build', 2100)) },
   // The furnace is built from the right, so the builder faces left (the mirrored frames).
   'furnace-lights': { [R3]: routine('hut-site', walk('furnace'), work('build', 1400, -1)) },
-  'farm-blossoms': { [R2]: routine('plot', work('dig', 1300)) },
   'cave-furnished': { [R2]: caveTrip('plot') },
   'livestock-fenced': { [R3]: routine('furnace', walk('pen'), work('build', 2400)), [R2]: walkHome('cave', 'plot') },
   'riverbed-dug': { [R3]: routine('pen', walk('riverbed'), work('dig', 2600)) },
@@ -157,6 +173,7 @@ export const ROUTINES: Partial<Record<WaveId, Readonly<Record<string, Routine>>>
       'riverbed',
       walk('spring'),
       // The bucket is filled at the pond (splash), carried to the animals' basin, and poured in.
+      // The pour ends as the basin is full, and the resident does not pour again.
       work('fill', 600),
       carry('bucket', 'pen'),
       work('pour', 700),
@@ -167,33 +184,12 @@ export const ROUTINES: Partial<Record<WaveId, Readonly<Record<string, Routine>>>
     [R4]: routine('village', walk('home-a'), work('build', 1500)),
     // The second is built from stone fetched from the pile and carried over.
     [R5]: routine('village', walk('stone-pile'), work('gather', 600), carry('stone-block', 'home-b'), work('build', 1200)),
-    // Stone work at the workshop meanwhile.
-    [R6]: routine('village', walk('workshop'), work('build', 1500)),
+    // The sixth resident has no building left to do: the workshop already stands, so it only
+    // walks to its place beside it.
+    [R6]: routine('village', walk('workshop')),
   },
-  'ecosystem-flourishes': { [R2]: routine('plot', work('dig', 1500)) },
   'shrine-appears': { [R2]: caveTrip('plot') },
   'epilogue-growth': { [R2]: walkHome('cave', 'plot') },
-};
-
-// --- Roles: once the village has gathered (six residents), every resident has a lasting
-// job that goes on while no Wave gives them a routine, and after the END. Assignment is a
-// presentation choice (which resident does what), not a rule; each stands at its station.
-export const ROLES_FROM_POPULATION = 6;
-type Activity =
-  | { readonly kind: 'warm' }
-  | { readonly kind: 'work'; readonly action: WorkId; readonly facing: -1 | 1 };
-interface Role {
-  readonly job: string;
-  readonly station: ResidentPlace;
-  readonly activity: Activity;
-}
-export const ROLES: Readonly<Record<string, Role>> = {
-  [R1]: { job: 'communal cooking', station: 'fire', activity: { kind: 'warm' } },
-  [R2]: { job: 'cultivation', station: 'plot', activity: { kind: 'work', action: 'dig', facing: 1 } },
-  [R3]: { job: 'water delivery', station: 'pen', activity: { kind: 'work', action: 'pour', facing: 1 } },
-  [R4]: { job: 'building and fetching stone', station: 'home-a', activity: { kind: 'work', action: 'gather', facing: 1 } },
-  [R5]: { job: 'building', station: 'home-b', activity: { kind: 'work', action: 'build', facing: 1 } },
-  [R6]: { job: 'stone work', station: 'workshop', activity: { kind: 'work', action: 'build', facing: 1 } },
 };
 
 // 0..1 within the current 300 ms frame.
@@ -288,6 +284,13 @@ export function workStartMs(r: Routine, id: string, action: WorkId): number | nu
   return found === undefined ? null : found.startMs;
 }
 
+// When (ms into the Wave) the resident's first `action` step ends, or null: the moment the
+// work on its target is over. What that work creates must be complete by then.
+export function workEndMs(r: Routine, id: string, action: WorkId): number | null {
+  const found = plan(r.steps, residentSpot(r.from, id)).find((s) => s.step.kind === 'work' && s.step.action === action);
+  return found === undefined ? null : found.endMs;
+}
+
 // The span (ms into the Wave) the resident spends out of sight inside the cave.
 export function hiddenSpan(r: Routine, id: string): { readonly startMs: number; readonly endMs: number } | null {
   const found = plan(r.steps, residentSpot(r.from, id)).find((s) => s.step.kind === 'hidden');
@@ -304,10 +307,13 @@ export function arrivalMs(r: Routine, id: string, to: SpotId): number | null {
 const swallowed = (conceal: 'in' | 'out', t: number): number =>
   conceal === 'in' ? 1 - smoothstep(0.4, 1, t) : smoothstep(0, 0.6, t);
 
-function routinePose(steps: readonly Step[], start: Point, elapsedMs: number, seconds: number): CrewPose {
-  const segments = plan(steps, start);
+function routinePose(routine: Routine, start: Point, elapsedMs: number, seconds: number): CrewPose {
+  const segments = plan(routine.steps, start);
   const last = segments[segments.length - 1];
-  if (last === undefined || elapsedMs >= last.endMs) return rest(last?.to ?? start, seconds, 0);
+  if (last === undefined || elapsedMs >= last.endMs) {
+    const at = last?.to ?? start;
+    return routine.ends === 'warm' ? visible(stillPose('warm', false, at)) : rest(at, seconds, 0);
+  }
   const segment = segments.find((s) => elapsedMs < s.endMs)!;
   const { step } = segment;
   const local = elapsedMs - segment.startMs;
@@ -340,34 +346,23 @@ function crewVisual(id: string, crew: CrewPose, scale = 1): ResidentVisual {
   return { id, pose: crew.pose, alpha: crew.visibility, scale: scale * receding, shakeX: 0, layers: crew.layers };
 }
 
-// The role's stationary work while no Wave gives the resident a routine.
-function rolePose(role: Role, at: Point, snapshot: SliceSnapshot): CrewPose {
-  const { activity } = role;
-  if (activity.kind === 'warm') return visible(stillPose('warm', false, at));
-  // The splash of a pour is a short pulse once per loop frame pair.
-  const t = (snapshot.clockMs % (ACTION_FRAME_MS * 2)) / (ACTION_FRAME_MS * 2);
-  return workPose(activity.action, at, activity.facing, snapshot.clockMs, t);
-}
-
-// The pose for resident `resident` from a Wave routine, or from its role, or null when
-// neither applies (the caller then falls back to the Turn 1/2 behaviour or standing still).
+// The pose for resident `resident` from a Wave routine, or null when no routine applies to
+// it right now (the caller then falls back to the Turn 1/2 behaviour or standing at rest).
+// Once a Wave's routine is over the resident rests where it ended, and a resident between
+// Waves rests at its place: there is no standing job that restarts work on a finished target.
 function autonomousPose(snapshot: SliceSnapshot, resident: Resident): CrewPose | null {
   const wave = snapshot.activeWave;
   const seconds = snapshot.clockMs / 1000;
   const waveRoutine = wave === null ? undefined : ROUTINES[wave.id]?.[resident.id];
   if (wave !== null && waveRoutine !== undefined) {
-    return routinePose(waveRoutine.steps, residentSpot(resident.place, resident.id), wave.elapsedMs, seconds);
-  }
-  const role = ROLES[resident.id];
-  if (role !== undefined && snapshot.world.population >= ROLES_FROM_POPULATION && resident.place === role.station) {
-    return rolePose(role, residentSpot(resident.place, resident.id), snapshot);
+    return routinePose(waveRoutine, residentSpot(resident.place, resident.id), wave.elapsedMs, seconds);
   }
   return null;
 }
 
 // Residents 1 and 2 keep the approved Turn 1/2 behaviour; this is non-null only when one of
-// them has autonomous work (a routine, or a role once the village stands) or has moved off
-// their Turn 2 post (the second resident at the cave).
+// them has a Wave routine (the first builds the workshop, the second walks to the cave) or has
+// moved off their Turn 2 post (the second resident at the cave).
 export function computeFounderVisual(snapshot: SliceSnapshot, resident: Resident): ResidentVisual | null {
   const crew = autonomousPose(snapshot, resident);
   if (crew !== null) return crewVisual(resident.id, crew);

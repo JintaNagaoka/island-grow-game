@@ -6,7 +6,7 @@ import {
   FARM_WATER_HUMAN_FEET,
   HUT_ASSET,
 } from './turn2Assets';
-import { CAVE_EXTERIOR_PLACEMENT, RIVER_SOURCE_PX, TRUE_PROPS } from './trueRouteAssets';
+import { CAVE_EXTERIOR_PLACEMENT, RIVER_SOURCE_PX, TRUE_ART_SIZE, TRUE_PROPS } from './trueRouteAssets';
 import { FIRE_ASSET, WORLD_ASSETS, type WorldAsset } from './worldAssets';
 
 // All layout is expressed as ratios of the 9:16 design resolution so aspect
@@ -56,13 +56,36 @@ const PLANT_PLOT = at(PLOT.x + 30, PLOT.y + 4);
 
 // How wide a village home is drawn relative to the second hut it reuses (provisional).
 export const VILLAGE_HOME_SCALE = 0.8;
-// Where the second hut's left (visible, lit) wall meets the ground, in hut-second.png
-// pixels: the builder's mallet face is aimed at this wall.
+// The second-hut art (hut-second.png) is drawn with its open front on the right and its lit log
+// wall on the left. Every home on the right of the island's centre line is the same art
+// mirrored horizontally (the building itself, not only its builder), so its open front turns
+// toward the middle of the settlement like the approved left Turn 2 hut's does.
+// Where the wall the builder's mallet is aimed at meets the ground, in hut-second.png pixels:
+//  - unflipped: the left log wall's stone corner;
+//  - mirrored: the corner that is then on the left, in the MIRRORED image's pixels. The builder
+//    stands on the settlement side (the island's land) of the home in both cases, facing right.
 export const HUT_WALL_PX = { x: 80, y: 380 } as const;
+export const HUT_WALL_MIRRORED_PX = { x: 55, y: 385 } as const;
 const HUT_ANCHOR_PX = TRUE_PROPS.secondHut.groundAnchor;
-// The wall point of a hut standing at `ground` drawn at `scale`.
-const hutWall = (ground: Point, scale: number): Point =>
-  at(ground.x + (HUT_WALL_PX.x - HUT_ANCHOR_PX.x) * scale, ground.y + (HUT_WALL_PX.y - HUT_ANCHOR_PX.y) * scale);
+// Homes right of the island's centre line are mirrored (data, not a per-home special case).
+export const isMirroredHome = (ground: Point): boolean => ground.x > DESIGN_WIDTH / 2;
+// The wall point of a hut standing at `ground` drawn at `scale`, mirrored or not.
+const hutWall = (ground: Point, scale: number, mirrored = isMirroredHome(ground)): Point => {
+  const wall = mirrored ? HUT_WALL_MIRRORED_PX : HUT_WALL_PX;
+  // A mirrored sprite keeps its ground anchor on the ground point; its pixels run the other way.
+  const anchorX = mirrored ? TRUE_ART_SIZE - HUT_ANCHOR_PX.x : HUT_ANCHOR_PX.x;
+  return at(ground.x + (wall.x - anchorX) * scale, ground.y + (wall.y - HUT_ANCHOR_PX.y) * scale);
+};
+// Where the stone workshop's left face (its log frame and stone) meets the ground, in
+// stone-workshop.png pixels: the builder's mallet is aimed at it.
+export const WORKSHOP_WALL_PX = { x: 50, y: 392 } as const;
+const WORKSHOP_GROUND = at(452, 642);
+const WORKSHOP_ANCHOR_PX = TRUE_PROPS.stoneWorkshop.groundAnchor;
+const workshopWall = (): Point =>
+  at(
+    WORKSHOP_GROUND.x + (WORKSHOP_WALL_PX.x - WORKSHOP_ANCHOR_PX.x) * TRUE_PROPS.stoneWorkshop.baseScale,
+    WORKSHOP_GROUND.y + (WORKSHOP_WALL_PX.y - WORKSHOP_ANCHOR_PX.y) * TRUE_PROPS.stoneWorkshop.baseScale,
+  );
 // Where a resident facing right stands so the strike frame's mallet face lands on `face`.
 const standLeftOf = (face: Point): Point => at(face.x - BUILD_STRIKE_REACH.x, face.y + BUILD_STRIKE_REACH.y);
 // ...and facing left, for a target on the resident's left.
@@ -90,10 +113,15 @@ const TRUE_SPOTS = {
   digSite: lerp(RIVER_MOUTH, RIVER_SOURCE, 0.55),
   // The single plant plot's ground contact (every growth stage stands on it).
   plantPlot: PLANT_PLOT,
-  workshop: at(452, 642),
+  workshop: WORKSHOP_GROUND,
+  // The workshop's left face, and where its builder (the first resident, from the fire) stands
+  // facing right so the strike frame's mallet face lands on it.
+  workshopFace: workshopWall(),
+  workshopSite: standLeftOf(workshopWall()),
   secondHut: at(548, 702),
-  // The second hut's visible left wall, and where the builder stands (facing right) so the
-  // strike frame's mallet face lands on it.
+  secondHutMirrored: isMirroredHome(at(548, 702)),
+  // The second hut's visible wall (the mirrored art's left side), and where the builder stands
+  // (facing right) so the strike frame's mallet face lands on it.
   hutFace: hutWall(at(548, 702), TRUE_PROPS.secondHut.baseScale),
   hutSite: standLeftOf(hutWall(at(548, 702), TRUE_PROPS.secondHut.baseScale)),
   // Where the resident stands to work the stone at the workshop (just left of it).
@@ -115,9 +143,18 @@ const TRUE_SPOTS = {
   caveFront: onIsland(503, 222),
   caveInside: onIsland(503, 150),
   pen: PEN,
-  // The fence ring's centre is about 43 design px above its ground point.
-  parent: at(PEN.x - 22, PEN.y - 26),
-  child: at(PEN.x + 26, PEN.y - 16),
+  // The fence ring's centre is about 43 design px above its ground point. The animals' feet stand
+  // on the ring's floor, between its rear rails and the top of its front rail (about 34 design px
+  // above the ground point), not on the front rail.
+  parent: at(PEN.x - 22, PEN.y - 36),
+  // Inside the ring, off the front rail, and clear of the parent.
+  child: at(PEN.x + 30, PEN.y - 38),
+  // The guardian pair stands apart so the pale parent and child read as two animals at phone size:
+  // the parent at the back of the ring, the child forward in its open gate (nothing stands on a
+  // rail). The art is drawn larger than the livestock's (see TRUE_PROPS), so the pair needs more room
+  // than the livestock did.
+  guardianParent: at(PEN.x - 24, PEN.y - 44),
+  guardianChild: at(PEN.x + 10, PEN.y - 18),
   // Just behind the fence ring, on the grass above it.
   feed: at(PEN.x + 24, PEN.y - 88),
   basin: at(PEN.x - 30, PEN.y + 38),
@@ -125,7 +162,9 @@ const TRUE_SPOTS = {
   // of the basin, so the bucket's rim is over it as the water is poured.
   penGate: at(PEN.x - 56, PEN.y + 42),
   homes: [at(452, 742), at(596, 754)] as readonly Point[],
-  // The added homes' visible left walls, and where their builders stand (facing right) so the
+  // Whether each added home is drawn mirrored (every one right of the island's centre is).
+  homeMirrored: [isMirroredHome(at(452, 742)), isMirroredHome(at(596, 754))] as readonly boolean[],
+  // The added homes' visible walls, and where their builders stand (facing right) so the
   // strike frame's mallet face lands on them.
   homeFaces: [
     hutWall(at(452, 742), TRUE_PROPS.secondHut.baseScale * VILLAGE_HOME_SCALE),

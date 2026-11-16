@@ -36,8 +36,11 @@ import { HUMAN_ACTION_ASSET_LIST, HUMAN_ACTION_DIR } from './humanActions';
 import { computePlantVisual } from './plantGrowth';
 import { computeResidentVisuals, computeSplitEffect, type ResidentVisual } from './residents';
 import {
+  ANIMAL_GLOW_DEPTH,
+  GUARDIAN_SHADOW_DEPTH,
   SETTLEMENT_SLOTS,
   computeFurnaceVisual,
+  computeGuardianShadows,
   computeSettlementEffects,
   computeSettlementProps,
   computeVillageHomes,
@@ -144,6 +147,10 @@ export class IslandScene extends Phaser.Scene {
   private settlementImages = new Map<string, Phaser.GameObjects.Image>();
   private villageHomes: Phaser.GameObjects.Image[] = [];
   private effectGlow!: Phaser.GameObjects.Graphics;
+  // The glow around the pen sits behind the animals so it never veils them.
+  private effectGlowBehind!: Phaser.GameObjects.Graphics;
+  // The guardians' contact shadows: on the ground, under the fence.
+  private guardianShadows!: Phaser.GameObjects.Graphics;
   private effectSparkles!: Phaser.GameObjects.Graphics;
   // The END panel over the selection panel: title, Retry button.
   private endObjects: Phaser.GameObjects.GameObject[] = [];
@@ -272,8 +279,12 @@ export class IslandScene extends Phaser.Scene {
   // Wave's logical progress, then the Wave's glow and sparkles.
   private renderSettlement(snapshot: SliceSnapshot): void {
     for (const visual of computeSettlementProps(snapshot)) {
+      // A mirrored building keeps its ground anchor on its ground point (groundOrigin).
+      const origin = groundOrigin({ ...visual.asset, flipX: visual.flipX });
       this.settlementImages
         .get(visual.slot)!
+        .setOrigin(origin.x, origin.y)
+        .setFlipX(visual.flipX)
         .setVisible(visual.alpha > 0)
         .setAlpha(visual.alpha)
         .setPosition(visual.ground.x, visual.ground.y)
@@ -281,21 +292,31 @@ export class IslandScene extends Phaser.Scene {
         .setDepth(visual.depth);
     }
     computeVillageHomes(snapshot).forEach((home, index) => {
+      const origin = groundOrigin({ ...TRUE_PROPS.secondHut, flipX: home.flipX });
       this.villageHomes[index]
+        .setOrigin(origin.x, origin.y)
+        .setFlipX(home.flipX)
         .setVisible(home.alpha > 0)
         .setAlpha(home.alpha)
         .setPosition(home.ground.x, home.ground.y)
         .setScale(TRUE_PROPS.secondHut.baseScale * home.scale)
         .setDepth(home.ground.y);
     });
+    this.guardianShadows.clear();
+    for (const shadow of computeGuardianShadows(snapshot)) {
+      this.guardianShadows.fillStyle(0x183321, shadow.alpha);
+      this.guardianShadows.fillEllipse(shadow.ground.x, shadow.ground.y, shadow.width, shadow.height);
+    }
     this.drawEffects(computeSettlementEffects(snapshot));
   }
 
   private drawEffects(effects: readonly EffectVisual[]): void {
     this.effectGlow.clear();
+    this.effectGlowBehind.clear();
     this.effectSparkles.clear();
     for (const effect of effects) {
-      this.drawLevelUpShapes(this.effectGlow, this.effectSparkles, effect.ground, effect.width, effect.glow, effect.sparkle);
+      const glow = effect.behindAnimals ? this.effectGlowBehind : this.effectGlow;
+      this.drawLevelUpShapes(glow, this.effectSparkles, effect.ground, effect.width, effect.glow, effect.sparkle);
     }
   }
 
@@ -757,6 +778,8 @@ export class IslandScene extends Phaser.Scene {
       this.add.image(0, 0, hut.textureKey).setOrigin(hutOrigin.x, hutOrigin.y).setVisible(false),
     );
     this.effectGlow = this.add.graphics().setDepth(1400);
+    this.effectGlowBehind = this.add.graphics().setDepth(ANIMAL_GLOW_DEPTH);
+    this.guardianShadows = this.add.graphics().setDepth(GUARDIAN_SHADOW_DEPTH);
     this.effectSparkles = this.add.graphics().setDepth(1401);
   }
 

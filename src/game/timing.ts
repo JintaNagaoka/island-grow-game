@@ -50,7 +50,8 @@ export const FARM_WORK_MS = {
 export const TRUE_WAVE_BEATS = {
   // Turn 3
   farmMatures: 2.5,
-  workshopAppears: 2,
+  // An existing resident walks to the site, builds the workshop, and walks back.
+  workshopAppears: 6,
   humanDivides: 1, // the split pop; SPLIT_WAVE_MS is used for the shake itself
   humanWalksToWorkshop: 3,
   humanGathersStone: 3,

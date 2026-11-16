@@ -7,9 +7,10 @@ import { PLANT_LIFE_WAVES, ROCK_WAVES, WATER_WAVES, type WaveId } from '../game/
 import { readPng, type PngImage } from '../testSupport/png';
 import { snapshotAfter, snapshotAfterTurn, snapshotAtMs } from '../testSupport/trueRoute';
 import { SECOND_RESIDENT_ID } from '../game/worldState';
+import { computeFarmVisual } from './lifeAnimation';
 import { ROUTINES } from './crew';
 import { LAYOUT } from './layout';
-import { GROWTH_AFTER_WORK_MS, computePlantVisual, growthWindow } from './plantGrowth';
+import { computePlantVisual, growthWindow } from './plantGrowth';
 import { computeResidentVisuals } from './residents';
 import { PLANT_FRAME_LIST, PLANT_STAGES, PLANT_STAGE_BASE_SCALE, PLANT_STAGE_FRAMES } from './trueRouteAssets';
 
@@ -192,18 +193,39 @@ describe('plant stages follow the plant Events, in causal order', () => {
     expect([...shown]).toEqual([1, 2]);
   });
 
-  it('works the plot before it grows: the tending resident digs while the old stage stays, then the new stage fades in', () => {
-    const window = growthWindow({ id: 'farm-matures', durationMs: ROCK_WAVES.find((wave) => wave.id === 'farm-matures')!.durationMs });
-    expect(window.fromMs).toBe(GROWTH_AFTER_WORK_MS);
-    const early = snapshotAtMs('farm-matures', GROWTH_AFTER_WORK_MS - 100);
+  it('grows by the Stage alone: no resident digs or tends the plot, and growth starts as the Wave does', () => {
+    for (const id of ['farm-matures', 'farm-blossoms', 'ecosystem-flourishes'] as const) {
+      const wave = [...ROCK_WAVES, ...WATER_WAVES].find((candidate) => candidate.id === id)!;
+      // No resident has a routine in a plant-growth Wave, and growth does not wait for work or arrival.
+      expect(ROUTINES[id], id).toBeUndefined();
+      expect(growthWindow(wave), id).toEqual({ fromMs: 0, toMs: wave.durationMs });
+      // The second resident just stands at the plot in the resting pose all the way through.
+      for (const ms of [0, 200, wave.durationMs / 2, wave.durationMs - 1]) {
+        const snapshot = snapshotAtMs(id, ms);
+        const worker = computeResidentVisuals(snapshot).find((visual) => visual.id === SECOND_RESIDENT_ID)!;
+        expect(worker.pose.asset, `${id} @ ${ms}`).not.toMatch(/^action-/);
+        expect(worker.layers?.effect ?? null, `${id} @ ${ms}`).toBeNull();
+        expect(Math.hypot(worker.pose.x - LAYOUT.plotHuman.x, worker.pose.y - LAYOUT.plotHuman.y), `${id} @ ${ms}`).toBeLessThanOrEqual(0.5);
+      }
+    }
+    // The new stage is already fading in 40% into farm-matures (the level-up blend starts at 20%):
+    // nothing waited for a worker, so the whole Wave is the growth.
     const stages = (snapshot: SliceSnapshot) => Object.fromEntries(computePlantVisual(snapshot).stages.map((stage) => [stage.stage, stage.alpha]));
-    expect(stages(early)).toMatchObject({ 2: 1, 3: 0 });
-    const worker = computeResidentVisuals(early).find((visual) => visual.id === SECOND_RESIDENT_ID)!;
-    expect(worker.pose.asset).toMatch(/^action-dig-/);
-    expect(ROUTINES['farm-matures']![SECOND_RESIDENT_ID].steps[0]).toMatchObject({ kind: 'work', action: 'dig' });
-    const late = snapshotAtMs('farm-matures', window.toMs - 20);
-    expect(stages(late)[3]).toBeGreaterThan(0.9);
+    expect(stages(snapshotAtMs('farm-matures', 0.4 * ROCK_WAVES.find((wave) => wave.id === 'farm-matures')!.durationMs))[3]).toBeGreaterThan(0);
+    expect(stages(snapshotAtMs('farm-matures', 0))).toMatchObject({ 2: 1, 3: 0 });
+    expect(stages(snapshotAtMs('farm-matures', ROCK_WAVES.find((wave) => wave.id === 'farm-matures')!.durationMs - 20))[3]).toBeGreaterThan(0.9);
     expect(stages(snapshotAfter('farm-matures'))).toMatchObject({ 2: 0, 3: 1 });
+    // Turn 2's first planting still hands over from the composite farm-work art a moment into its Wave.
+    expect(growthWindow({ id: 'farm-expands', durationMs: 1000 }).fromMs).toBe(100);
+  });
+
+  it('is the same plot, the same single resident and no old farm at every moment of every plant-growth Wave', () => {
+    sampleRoute((snapshot) => {
+      if (snapshot.resolved.turn < 3) return;
+      const residents = computeResidentVisuals(snapshot).map((visual) => visual.id);
+      expect(new Set(residents).size, `${snapshot.clockMs}`).toBe(residents.length);
+      expect(computeFarmVisual(snapshot).frame, `${snapshot.clockMs}: no composite farm`).toBeNull();
+    });
   });
 
   it('does not read the turn number, the END or the authoritative Stage', () => {

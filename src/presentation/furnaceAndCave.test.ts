@@ -13,7 +13,7 @@ import { LAYOUT } from './layout';
 import { computeCookingFireVisual } from './lifeAnimation';
 import { computePlantVisual } from './plantGrowth';
 import { computeResidentVisuals } from './residents';
-import { CAVE_SILL_DEPTH, computeFurnaceVisual, computeSettlementProps, computeVillageHomes } from './settlement';
+import { CAVE_SILL_DEPTH, computeFurnaceVisual, computeSettlementEffects, computeSettlementProps, computeVillageHomes } from './settlement';
 import { CAVE_EXTERIOR_ANCHOR, CAVE_EXTERIOR_PLACEMENT, TRUE_PROPS } from './trueRouteAssets';
 import { WORLD_ASSETS } from './worldAssets';
 
@@ -119,6 +119,13 @@ describe('Retry clears every piece of autonomous-work presentation', () => {
     expect(computeSettlementProps(after)).toEqual(computeSettlementProps(fresh));
     expect(computeSettlementProps(after).every((visual) => visual.alpha === 0)).toBe(true);
     expect(computeVillageHomes(after).every((home) => home.alpha === 0)).toBe(true);
+    expect(computeVillageHomes(after)).toEqual(computeVillageHomes(fresh));
+    // The workshop, every home (and its mirroring), the guardians and any glow are cleared or reset.
+    for (const slot of ['stoneWorkshop', 'secondHut', 'guardianParent', 'guardianChild']) {
+      expect(computeSettlementProps(after).find((visual) => visual.slot === slot)!.alpha, slot).toBe(0);
+    }
+    expect(computeSettlementEffects(after)).toEqual([]);
+    expect(after.world.residents.map((resident) => resident.id)).toEqual(['resident-1']);
     // Nothing from the finished run is left to draw: no effect layers, no hidden resident.
     for (const visual of computeResidentVisuals(after)) expect(visual.layers?.effect ?? null).toBeNull();
   });

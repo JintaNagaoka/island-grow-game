@@ -134,18 +134,20 @@ describe('prop PNGs', () => {
     expect(box.left).toBeLessThanOrEqual(80);
   });
 
-  it('keeps the guardian pair at the same scale as the livestock pair it transforms from', () => {
+  it('draws the guardian pair a little larger than the livestock pair it transforms from, child still smaller than parent', () => {
     const width = (name: string): number => {
       const box = bounds(readPng(read(`world/turn3/${name}`)));
       return box.right - box.left;
     };
-    // Same drawn width on the canvas, so the same baseScale reads as the same animal.
-    expect(width('guardian-parent.png') / width('livestock-parent.png')).toBeGreaterThan(0.9);
-    expect(width('guardian-parent.png') / width('livestock-parent.png')).toBeLessThan(1.1);
-    expect(width('guardian-child.png') / width('livestock-child.png')).toBeGreaterThan(0.85);
-    expect(width('guardian-child.png') / width('livestock-child.png')).toBeLessThan(1.15);
-    expect(TRUE_PROPS.guardianParent.baseScale).toBe(TRUE_PROPS.livestockParent.baseScale);
-    // The child is drawn smaller than the parent, before and after.
+    // The guardian art fills about the same canvas width as the livestock art, so the drawn size
+    // ratio is the baseScale ratio: larger so the pale pair reads on a phone, but still the same
+    // animal (a presentation choice; human review judges how it looks).
+    const parentRatio = (width('guardian-parent.png') * TRUE_PROPS.guardianParent.baseScale) / (width('livestock-parent.png') * TRUE_PROPS.livestockParent.baseScale);
+    const childRatio = (width('guardian-child.png') * TRUE_PROPS.guardianChild.baseScale) / (width('livestock-child.png') * TRUE_PROPS.livestockChild.baseScale);
+    for (const ratio of [parentRatio, childRatio]) {
+      expect(ratio).toBeGreaterThan(1);
+      expect(ratio).toBeLessThan(1.4);
+    }
     expect(TRUE_PROPS.livestockChild.baseScale).toBeLessThan(TRUE_PROPS.livestockParent.baseScale);
     expect(TRUE_PROPS.guardianChild.baseScale / TRUE_PROPS.guardianParent.baseScale).toBeLessThan(1);
   });

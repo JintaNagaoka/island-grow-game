@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { snapshotAfter, snapshotAfterTurn, snapshotAt } from '../testSupport/trueRoute';
+import { snapshotAfter, snapshotAfterTurn, snapshotAt, snapshotAtMs } from '../testSupport/trueRoute';
 import { ROCK_WAVES, WATER_WAVES, type WaveId } from '../game/waves';
 import { LAYOUT } from './layout';
 import {
   SETTLEMENT_SLOTS,
+  WAVE_EFFECTS,
   computeFurnaceVisual,
   computeSettlementEffects,
   computeSettlementProps,
@@ -118,19 +119,30 @@ describe('settlement props through the TRUE route', () => {
     expect(computeSettlementEffects(snapshot)).toEqual(computeSettlementEffects(snapshot));
   });
 
-  it('shows glow only during Waves that build or grow something, with bounded strength', () => {
-    const glowWaves: WaveId[] = ['farm-matures', 'farm-blossoms', 'workshop-appears','human-builds-hut', 'furnace-lights', 'cave-furnished', 'livestock-fenced', 'livestock-breeds', 'spring-appears', 'village-built', 'ecosystem-flourishes', 'shrine-appears', 'epilogue-growth', 'true-judged', 'guardian-transforms'];
+  it('shows glow only during Waves that build or grow something, at the moment it is being made', () => {
+    const glowWaves = Object.keys(WAVE_EFFECTS) as WaveId[];
     for (const wave of [...ROCK_WAVES, ...WATER_WAVES]) {
-      const effects = computeSettlementEffects(snapshotAt(wave.id, 0.5));
-      if (glowWaves.includes(wave.id)) {
-        expect(effects.length, wave.id).toBeGreaterThan(0);
-        for (const effect of effects) expect(effect.glow).toBeGreaterThan(0.9);
-      } else {
-        expect(effects, wave.id).toEqual([]);
+      if (!glowWaves.includes(wave.id)) {
+        expect(computeSettlementEffects(snapshotAt(wave.id, 0.5)), wave.id).toEqual([]);
+        continue;
       }
-      for (const effect of computeSettlementEffects(snapshotAt(wave.id, 0))) expect(effect.glow).toBeCloseTo(0, 5);
+      // Each accent peaks in the middle of its own window: the whole Wave, or (for a building)
+      // the span in which its builder works on it, so the glow never precedes the builder.
+      WAVE_EFFECTS[wave.id]!.forEach((spot, index) => {
+        const middle = spot.window === undefined ? wave.durationMs / 2 : (spot.window.fromMs + spot.window.toMs) / 2;
+        const peak = computeSettlementEffects(snapshotAtMs(wave.id, middle))[index];
+        expect(peak.glow, `${wave.id}#${index} peak`).toBeGreaterThan(0.99);
+        expect(computeSettlementEffects(snapshotAtMs(wave.id, 0))[index].glow, `${wave.id}#${index} start`).toBeCloseTo(0, 5);
+      });
     }
   });
+
+  it('keeps no blessing effect once a Wave is over: nothing glows between Waves, after the guardians or at the END', () => {
+    for (const snapshot of [snapshotAfter('guardian-transforms'), snapshotAfterTurn(3), snapshotAfterTurn(4)]) {
+      expect(computeSettlementEffects(snapshot)).toEqual([]);
+    }
+  });
+
 });
 
 describe('TRUE route layout', () => {
@@ -153,7 +165,7 @@ describe('TRUE route layout', () => {
   });
 
   it('has no direct water channel to the animal pen or its basin', () => {
-    for (const target of [T.pen, T.basin, T.parent, T.child]) {
+    for (const target of [T.pen, T.basin, T.parent, T.child, T.guardianParent, T.guardianChild]) {
       expect(distanceToSegment(target, T.riverMouth, T.riverSource)).toBeGreaterThan(150);
       expect(Math.hypot(target.x - T.spring.x, target.y - T.spring.y)).toBeGreaterThan(150);
     }

@@ -18,13 +18,15 @@ import {
   type ActionFrame,
 } from './humanActions';
 import { HUMAN_SPRITE_SCALE } from './humanAssets';
-import { HUT_WALL_PX, LAYOUT } from './layout';
+import { HUT_WALL_MIRRORED_PX, HUT_WALL_PX, LAYOUT, WORKSHOP_WALL_PX } from './layout';
 import { computeResidentVisuals } from './residents';
 
 const ROOT = new URL('../../', import.meta.url);
 const load = (path: string): PngImage => readPng(readFileSync(new URL(path, ROOT)));
 const frameImage = (frame: ActionFrame): PngImage => load(`public/assets/human/actions/${frame.filename}`);
 const alphaAt = (image: PngImage, x: number, y: number): number => image.pixels[(y * image.width + x) * 4 + 3];
+// The alpha of a horizontally mirrored copy of the image, at a pixel of the mirrored copy.
+const mirroredAlphaAt = (image: PngImage, x: number, y: number): number => alphaAt(image, image.width - 1 - x, y);
 const T = LAYOUT.true;
 const distance = (a: { x: number; y: number }, b: { x: number; y: number }): number => Math.hypot(a.x - b.x, a.y - b.y);
 
@@ -216,15 +218,30 @@ describe('the builders strike toward what they build', () => {
     return { x: at.x + offset.x, y: at.y + offset.y };
   };
 
-  it('puts the mallet face on the second hut’s visible left wall, facing the hut', () => {
+  it('puts the mallet face on the mirrored second hut’s visible wall, from the settlement side, facing the hut', () => {
+    expect(T.secondHutMirrored).toBe(true);
     expect(distance(strike(T.hutSite, 1), T.hutFace)).toBeLessThanOrEqual(1.5);
     expect(T.hutFace.x).toBeGreaterThan(T.hutSite.x);
-    // The wall point is on the hut's art: opaque, with open air just left of it, at the hut's own scale.
+    // The wall point is on the MIRRORED art: opaque, with open air just left of it, at the hut's own scale.
     const hut = load('public/assets/world/turn3/hut-second.png');
+    expect(mirroredAlphaAt(hut, HUT_WALL_MIRRORED_PX.x, HUT_WALL_MIRRORED_PX.y)).toBeGreaterThanOrEqual(128);
+    expect(mirroredAlphaAt(hut, HUT_WALL_MIRRORED_PX.x - 14, HUT_WALL_MIRRORED_PX.y)).toBeLessThan(128);
+    // It is the hut's ground anchor that stays put: the face is measured from the unchanged ground point.
+    expect(T.hutFace.x).toBeCloseTo(T.secondHut.x + (HUT_WALL_MIRRORED_PX.x - 256) * 0.3, 6);
+    expect(T.hutFace.y).toBeLessThan(T.secondHut.y);
+    // The unmirrored art's own wall is still where it was (the approved left side of the art).
     expect(alphaAt(hut, HUT_WALL_PX.x, HUT_WALL_PX.y)).toBeGreaterThanOrEqual(128);
     expect(alphaAt(hut, HUT_WALL_PX.x - 14, HUT_WALL_PX.y)).toBeLessThan(128);
-    expect(T.hutFace.x).toBeCloseTo(T.secondHut.x + (HUT_WALL_PX.x - 256) * 0.3, 6);
-    expect(T.hutFace.y).toBeLessThan(T.secondHut.y);
+  });
+
+  it('puts the mallet face on the stone workshop’s left face, from the left, facing the workshop', () => {
+    expect(distance(strike(T.workshopSite, 1), T.workshopFace)).toBeLessThanOrEqual(1.5);
+    expect(T.workshopFace.x).toBeGreaterThan(T.workshopSite.x);
+    const workshop = load('public/assets/world/turn3/stone-workshop.png');
+    expect(alphaAt(workshop, WORKSHOP_WALL_PX.x, WORKSHOP_WALL_PX.y)).toBeGreaterThanOrEqual(128);
+    expect(alphaAt(workshop, WORKSHOP_WALL_PX.x - 14, WORKSHOP_WALL_PX.y)).toBeLessThan(128);
+    expect(T.workshopFace.x).toBeCloseTo(T.workshop.x + (WORKSHOP_WALL_PX.x - 256) * 0.24, 6);
+    expect(T.workshopFace.y).toBeLessThan(T.workshop.y);
   });
 
   it('puts it on the finished furnace’s right face from the right, facing left (the mirrored frames)', () => {

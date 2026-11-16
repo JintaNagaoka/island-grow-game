@@ -13,8 +13,6 @@ import { snapshotAfter, snapshotAfterTurn, snapshotAt, snapshotAtMs } from '../t
 import {
   LOADS,
   PLACE_SPOTS,
-  ROLES,
-  ROLES_FROM_POPULATION,
   ROUTINES,
   WORK_ACTIONS,
   arrivalMs,
@@ -23,13 +21,16 @@ import {
   residentSpot,
   routineDurationMs,
   routineEndSpot,
+  workEndMs,
   workStartMs,
 } from './crew';
+import * as crewModule from './crew';
 import { ACTION_FRAME_MS } from './humanActions';
 import { HUMAN_WALK_SPEED_PX_PER_MS } from './humanWalk';
 import { LAYOUT } from './layout';
 import { computeResidentVisuals, type ResidentVisual } from './residents';
-import { computeSettlementProps, computeVillageHomes } from './settlement';
+import { computePlantVisual } from './plantGrowth';
+import { computeFurnaceVisual, computeSettlementEffects, computeSettlementProps, computeVillageHomes } from './settlement';
 
 const T = LAYOUT.true;
 const ALL_WAVES = [...ROCK_WAVES, ...WATER_WAVES];
@@ -158,50 +159,120 @@ describe('Wave routines', () => {
   });
 });
 
-describe('division of labour in Turn 4 and at the END', () => {
-  it('gives every one of the six residents their own job', () => {
-    const jobs = Object.values(ROLES).map((role) => role.job);
-    expect(Object.keys(ROLES)).toHaveLength(ROLES_FROM_POPULATION);
-    expect(new Set(jobs).size).toBe(ROLES_FROM_POPULATION);
-    for (const wanted of ['communal cooking', 'cultivation', 'water delivery', 'stone work']) expect(jobs).toContain(wanted);
+// Where each resident stands once the village stands. Presentation's choice of station, not a rule.
+const STATIONS: Readonly<Record<string, ResidentPlace>> = {
+  'resident-1': 'fire',
+  'resident-2': 'plot',
+  'resident-3': 'pen',
+  'resident-4': 'home-a',
+  'resident-5': 'home-b',
+  'resident-6': 'workshop',
+};
+const isWorkAsset = (asset: string): boolean => /^action-/.test(asset);
+
+describe('work ends when its creation step ends, and nobody works at the END', () => {
+  it('has a standing station for each of the six residents but no standing job (no endless work routines)', () => {
+    expect(Object.keys(STATIONS)).toHaveLength(6);
+    const ended = snapshotAfterTurn(4);
+    for (const resident of ended.world.residents) expect(resident.place, resident.id).toBe(STATIONS[resident.id]);
+    expect(Object.keys(crewModule).some((name) => /ROLES/.test(name))).toBe(false);
   });
 
-  it('keeps all six residents at work after the END, in six different places, none of them an idle bob', () => {
+  it('keeps all six residents standing still at their stations after the END, with no work pose and no effect', () => {
     const game = new SliceGame();
     for (const element of TRUE_ROUTE) {
       game.selectElement(element);
       game.advance(120_000);
     }
     expect(game.snapshot().phase).toBe('ended');
-    const texturesOver = new Map<string, Set<string>>();
     const spots = new Set<string>();
-    for (let i = 0; i < 12; i += 1) {
-      game.advance(ACTION_FRAME_MS / 2);
-      for (const visual of computeResidentVisuals(game.snapshot())) {
+    for (let i = 0; i < 40; i += 1) {
+      game.advance(250);
+      const visuals = computeResidentVisuals(game.snapshot());
+      expect(visuals.map((visual) => visual.id).sort()).toEqual(['resident-1', 'resident-2', 'resident-3', 'resident-4', 'resident-5', 'resident-6']);
+      for (const visual of visuals) {
         expect(visual.alpha, visual.id).toBe(1);
-        expect(visual.pose.asset, `${visual.id} is not standing in the idle pose`).not.toBe('idle');
-        const set = texturesOver.get(visual.id) ?? new Set<string>();
-        set.add(visual.pose.asset);
-        texturesOver.set(visual.id, set);
+        expect(isWorkAsset(visual.pose.asset), `${visual.id} @ ${i}: ${visual.pose.asset}`).toBe(false);
+        expect(visual.layers?.effect ?? null, `${visual.id} @ ${i}`).toBeNull();
+        // At its station: the resident neither walks nor drifts.
+        expect(distance(visual.pose, residentSpot(STATIONS[visual.id], visual.id)), visual.id).toBeLessThanOrEqual(0.5);
+        expect(visual.pose.walk, visual.id).toBeNull();
         spots.add(`${Math.round(visual.pose.x)},${Math.round(visual.pose.y)}`);
       }
     }
-    expect([...texturesOver.keys()].sort()).toEqual(['resident-1', 'resident-2', 'resident-3', 'resident-4', 'resident-5', 'resident-6']);
     expect(spots.size).toBe(6);
-    // The workers' two frames alternate with the logical clock.
-    for (const id of ['resident-2', 'resident-4', 'resident-5', 'resident-6']) expect(texturesOver.get(id)!.size, id).toBe(2);
-    // Different jobs read as different poses.
-    const poses = new Set([...texturesOver.values()].map((set) => [...set].sort().join('+')));
-    expect(poses.size).toBeGreaterThanOrEqual(4);
   });
 
-  it('keeps each resident at their station, as the resident whose place it is', () => {
-    const ended = snapshotAfterTurn(4);
-    for (const resident of ended.world.residents) {
-      const role = ROLES[resident.id];
-      expect(resident.place, resident.id).toBe(role.station);
-      expect(distance(visualOf(ended, resident.id).pose, residentSpot(role.station, resident.id)), resident.id).toBeLessThanOrEqual(0.5);
-    }
+  it('shows a work pose only for a resident whose routine is in the Wave being played, at any moment of the route', () => {
+    let work = 0;
+    eachFrame(40, (snapshot) => {
+      const wave = snapshot.activeWave;
+      for (const visual of computeResidentVisuals(snapshot)) {
+        const routine = wave === null ? undefined : ROUTINES[wave.id]?.[visual.id];
+        if (isWorkAsset(visual.pose.asset)) {
+          work += 1;
+          expect(routine, `${visual.id} works at ${snapshot.clockMs} in ${wave?.id ?? 'no Wave'}`).toBeDefined();
+        }
+        if (visual.layers?.effect != null) expect(routine, `${visual.id} raises an effect at ${snapshot.clockMs}`).toBeDefined();
+      }
+    });
+    expect(work).toBeGreaterThan(100);
+  });
+
+  // Every piece of creation work: who does it, in which Wave, and what it creates. The result is
+  // complete when the work ends, the resident is not working a moment later, and does not work on it again.
+  const creations = [
+    { target: 'workshop', wave: 'workshop-appears', id: FIRST_RESIDENT_ID, action: 'build', alpha: (s: SliceSnapshot) => propAlpha(s, 'stoneWorkshop') },
+    { target: 'second hut', wave: 'human-builds-hut', id: THIRD_RESIDENT_ID, action: 'build', alpha: (s: SliceSnapshot) => propAlpha(s, 'secondHut') },
+    { target: 'furnace', wave: 'furnace-lights', id: THIRD_RESIDENT_ID, action: 'build', alpha: (s: SliceSnapshot) => computeFurnaceVisual(s).alpha },
+    { target: 'fence', wave: 'livestock-fenced', id: THIRD_RESIDENT_ID, action: 'build', alpha: (s: SliceSnapshot) => propAlpha(s, 'fence') },
+    { target: 'feed area', wave: 'livestock-fenced', id: THIRD_RESIDENT_ID, action: 'build', alpha: (s: SliceSnapshot) => propAlpha(s, 'feedTrough') },
+    { target: 'empty basin', wave: 'livestock-fenced', id: THIRD_RESIDENT_ID, action: 'build', alpha: (s: SliceSnapshot) => propAlpha(s, 'basinEmpty') },
+    { target: 'riverbed', wave: 'riverbed-dug', id: THIRD_RESIDENT_ID, action: 'dig', alpha: (s: SliceSnapshot) => propAlpha(s, 'dryRiverbed') },
+    { target: 'home A', wave: 'village-built', id: VILLAGE_RESIDENT_IDS[0], action: 'build', alpha: (s: SliceSnapshot) => computeVillageHomes(s)[0].alpha },
+    { target: 'home B', wave: 'village-built', id: VILLAGE_RESIDENT_IDS[1], action: 'build', alpha: (s: SliceSnapshot) => computeVillageHomes(s)[1].alpha },
+    { target: 'filled basin', wave: 'water-carried', id: THIRD_RESIDENT_ID, action: 'pour', alpha: (s: SliceSnapshot) => propAlpha(s, 'basinFilled') },
+  ] as const;
+  const propAlpha = (snapshot: SliceSnapshot, slot: string): number => computeSettlementProps(snapshot).find((visual) => visual.slot === slot)!.alpha;
+
+  for (const creation of creations) {
+    it(`${creation.target}: not there while the resident walks, complete exactly as the ${creation.action} work ends, and the resident stops`, () => {
+      const routine = ROUTINES[creation.wave]![creation.id];
+      const start = workStartMs(routine, creation.id, creation.action)!;
+      const end = workEndMs(routine, creation.id, creation.action)!;
+      const wave = ALL_WAVES.find((candidate) => candidate.id === creation.wave)!;
+      expect(end, 'the work fits in the Wave').toBeLessThanOrEqual(wave.durationMs);
+      // Before the work starts nothing of it stands; the resident is not yet working.
+      expect(creation.alpha(snapshotAtMs(creation.wave, Math.max(0, start - 50))), 'not yet').toBe(0);
+      // It is complete as the work ends, and not a moment before the last strikes.
+      expect(creation.alpha(snapshotAtMs(creation.wave, end - 1)), 'complete at the end of the work').toBeGreaterThan(0.99);
+      expect(creation.alpha(snapshotAtMs(creation.wave, start + ACTION_FRAME_MS)), 'still being made after the first frame').toBeLessThan(0.5);
+      // The moment the work ends the resident is no longer working: no work pose, no effect.
+      if (end + 20 < wave.durationMs) {
+        const after = visualOf(snapshotAtMs(creation.wave, end + 20), creation.id);
+        expect(isWorkAsset(after.pose.asset), 'stops working').toBe(false);
+        expect(after.layers?.effect ?? null).toBeNull();
+      }
+      // At the Wave's end and from then on, still not working on it (nothing restarts it).
+      for (const snapshot of [snapshotAfter(creation.wave), snapshotAfterTurn(4)]) {
+        const later = visualOf(snapshot, creation.id);
+        expect(isWorkAsset(later.pose.asset), 'does not work again').toBe(false);
+        expect(later.layers?.effect ?? null).toBeNull();
+      }
+      // Exactly one routine in the whole route does this work on this target's resident and action.
+      const same = Object.entries(ROUTINES).filter(([, byResident]) =>
+        byResident?.[creation.id]?.steps.some((step) => step.kind === 'work' && step.action === creation.action),
+      );
+      expect(same.map(([waveId]) => waveId)).toContain(creation.wave);
+    });
+  }
+
+  it('does no digging or farming for the plant: the only digging in the whole route is the riverbed', () => {
+    const digging = Object.entries(ROUTINES).filter(([, byResident]) =>
+      Object.values(byResident ?? {}).some((routine) => routine.steps.some((step) => step.kind === 'work' && step.action === 'dig')),
+    );
+    expect(digging.map(([waveId]) => waveId)).toEqual(['riverbed-dug']);
+    for (const waveId of ['farm-matures', 'farm-blossoms', 'ecosystem-flourishes'] as const) expect(ROUTINES[waveId]).toBeUndefined();
   });
 
   it('shows the added homes only after their builders have walked to them and worked', () => {
@@ -355,6 +426,9 @@ describe('autonomous work follows the logical clock only', () => {
     residents: computeResidentVisuals(snapshot),
     props: computeSettlementProps(snapshot),
     homes: computeVillageHomes(snapshot),
+    furnace: computeFurnaceVisual(snapshot),
+    effects: computeSettlementEffects(snapshot),
+    plant: computePlantVisual(snapshot),
   });
 
   function at(clockMs: number, speed: number, chunk: number): SliceSnapshot {
@@ -381,9 +455,11 @@ describe('autonomous work follows the logical clock only', () => {
     JSON.parse(JSON.stringify(value, (_key, item) => (typeof item === 'number' ? Math.round(item * 1e5) / 1e5 : item)));
 
   it('is identical at the same logical time at any playback speed and however the time is split', () => {
-    // Logical times inside Turn 3, Turn 4 and the Epilogue (the turns' Waves play back to back).
-    for (const logical of [23_333, 31_111, 41_234, 52_345, 60_321, 69_876]) {
+    // Logical times inside Turn 3, Turn 4 and the Epilogue (the turns' Waves play back to back),
+    // including the workshop build (about 20.5 s to 24 s), plant growth and the guardian Wave.
+    for (const logical of [20_900, 22_400, 23_333, 26_500, 31_111, 41_234, 52_345, 60_321, 69_876, 80_500]) {
       const reference = stable(frames(at(logical, 1, 100)));
+      if (logical === 22_400) expect(at(logical, 1, 100).activeWave?.id, 'inside the workshop build').toBe('workshop-appears');
       for (const [speed, chunk] of [[2, 100], [4, 30], [0.5, 50], [1, 7]] as const) {
         expect(stable(frames(at(logical, speed, chunk))), `${logical} ms at ${speed}x`).toEqual(reference);
       }

@@ -80,9 +80,11 @@ export const TRUE_PROPS = {
     CAVE_EXTERIOR_PLACEMENT.islandScale * WORLD_ASSETS.island.baseScale,
   ),
   // Feet bottoms differ from the livestock art (these carry leaves above the body), so
-  // their anchors are their own foot lines.
-  guardianParent: prop(TURN3_ASSET_DIR, 'true-guardian-parent', 'guardian-parent.png', { x: 256, y: 415 }, 0.18),
-  guardianChild: prop(TURN3_ASSET_DIR, 'true-guardian-child', 'guardian-child.png', { x: 256, y: 450 }, 0.13),
+  // their anchors are their own foot lines. The pair is drawn larger than the livestock art it
+  // transforms from (a presentation choice so the pale pair stays readable on a phone; the art
+  // itself is unchanged).
+  guardianParent: prop(TURN3_ASSET_DIR, 'true-guardian-parent', 'guardian-parent.png', { x: 256, y: 415 }, 0.19),
+  guardianChild: prop(TURN3_ASSET_DIR, 'true-guardian-child', 'guardian-child.png', { x: 256, y: 450 }, 0.14),
 } as const satisfies Record<string, TrueAsset>;
 
 // The riverbed's source end in its own PNG pixels (where the spring's outlet joins).

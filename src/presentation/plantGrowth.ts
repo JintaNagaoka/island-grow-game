@@ -22,13 +22,14 @@ function stageAfterWave(snapshot: SliceSnapshot): number {
   return definition === undefined ? world.plantStage : Math.max(world.plantStage, definition.complete(world).plantStage);
 }
 
-// When, inside its Wave, the plot starts to change. Turn 2's plot takes over from the
-// composite farm-work art at the very start of its Wave; every later change waits for the
-// resident to have worked at the plot for a moment, so the work comes before the growth.
-export const GROWTH_AFTER_WORK_MS = 500;
+// When, inside its Wave, the plot changes. The plant grows by the Rule Engine's Stage alone:
+// no resident has to arrive, work or take any time first, so every Wave that raises the plant
+// shows the change across its whole length. The one exception is Turn 2's first planting,
+// where the plot takes over from the composite farm-work art (human + old plot) a moment into
+// its Wave, so the two never show side by side.
 const HAND_OVER_FRACTION = 0.1;
 export function growthWindow(wave: { readonly id: WaveId; readonly durationMs: number }): { readonly fromMs: number; readonly toMs: number } {
-  const fromMs = wave.id === 'farm-expands' ? HAND_OVER_FRACTION * wave.durationMs : Math.min(GROWTH_AFTER_WORK_MS, 0.4 * wave.durationMs);
+  const fromMs = wave.id === 'farm-expands' ? HAND_OVER_FRACTION * wave.durationMs : 0;
   return { fromMs, toMs: wave.durationMs };
 }
 

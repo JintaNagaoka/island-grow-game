@@ -165,7 +165,15 @@ const reveal =
 // raise the plant (plant-fruits, plant-spreads) so the plot shows each Stage it reaches.
 export const ROCK_WAVES: readonly Wave[] = [
   { id: 'farm-matures', event: 'plant-fruits', durationMs: beats(TRUE_WAVE_BEATS.farmMatures), complete: (world) => revealPlantStage(world, 3) },
-  { id: 'workshop-appears', event: 'stone-workbench', durationMs: beats(TRUE_WAVE_BEATS.workshopAppears), complete: reveal('stone-workshop') },
+  {
+    // An existing resident (the first, from the fire) walks to the site and builds the workshop;
+    // the workshop stands once the building work has finished, and the work stops there. The
+    // third resident has not divided off yet (human-divides follows), so it cannot be the builder.
+    id: 'workshop-appears',
+    event: 'stone-workbench',
+    durationMs: beats(TRUE_WAVE_BEATS.workshopAppears),
+    complete: reveal('stone-workshop'),
+  },
   {
     id: 'human-divides',
     event: 'human-division',
